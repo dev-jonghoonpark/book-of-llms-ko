@@ -1,0 +1,2429 @@
+# 신경망 기초 (Neural net basics)
+
+## 다층 퍼셉트론 (Multi-layer perceptrons)
+
+- **다층 퍼셉트론(multi-layer perceptron)**: 입력층, 하나 이상의 은닉층, 출력층으로 이뤄진 완전 연결(fully-connected) 네트워크
+  - 흔히 “feed-forward network”와 같은 뜻으로 쓰지만, 엄밀히 FFN은 정보가 한 방향으로 흐르는 네트워크 전반을 가리키는 더 넓은 범주다
+- 뉴런 하나는 입력의 가중합을 계산하고, bias를 더한 뒤, 그 결과를 활성화 함수에 통과시킨다
+  - $\mathbf x\in\mathbb R^n$은 입력 벡터(이전 층의 activation)
+  - $\mathbf w\in\mathbb R^n$은 가중치 벡터(뉴런으로 들어오는 엣지의 가중치)
+  - $b\in\mathbb R$은 bias
+  - $f$는 활성화 함수
+
+  $$
+  y=f\left(\sum_{i=1}^n w_i x_i+b\right)=f(\mathbf w^\top\mathbf x +b)
+  $$
+
+- 입력이 $n_\text{in}$개, 뉴런이 $n_\text{out}$개인 층은 행렬 곱으로 계산할 수 있다
+  - 즉 $\mathbf x\in\mathbb R^{n_\text{in}}$ (열 벡터)
+  - 모든 가중치 벡터를 하나의 가중치 행렬 $W\in\mathbb R^{n_\text{out}\times n_\text{in}}$로 쌓는다
+    - 각 행은 뉴런 하나로 들어가는 가중치
+  - bias는 벡터 $\mathbf b\in\mathbb R^{n_\text{out}}$로 쌓는다
+  - 출력 은닉 상태의 shape은 $\mathbf h\in\mathbb R^{n_\text{out}}$
+
+  $$
+  \mathbf h=f(W\mathbf x+\mathbf b)
+  $$
+
+- 실제로는 입력 $m$개짜리 batch를 한 번에 처리한다!
+  - 이때 입력을 행렬 $X \in\mathbb R^{m\times n_\text{in}}$의 행으로 배치한다
+  - 관례상 $W$의 shape을 $\mathbb R^{n_\text{in}\times n_\text{out}}$로 바꾼다
+    - 각 열은 뉴런 하나로 들어가는 가중치
+  - 그러면 층은 다음과 같다
+
+    $$
+    H=f(XW+\mathbf b)
+    $$
+
+    - 여기서 $\mathbf b$는 shape $m\times n_\text{out}$으로 broadcast된다
+
+> 수학 표기에서 linear layer는 $X\in\mathbb R^{m\times n_\text{in}}$을 받아 $W\in\mathbb R^{n_\text{in}\times n_\text{out}}$를 $XW+b$ 형태로 적용한다.
+>
+> PyTorch에서는 가중치 행렬 `W`가 실제로 $n_\text{out}\times n_\text{in}$으로 저장된다. forward pass에서 `W`를 전치해 `X @ W.T` $(m, n_\text{in})\times (n_\text{in},n_\text{out})$를 계산한다. 전치는 stride만 바꾸므로 비용이 없다. 이렇게 하는 이유는 $W$에 대한 기울기가 자연스럽게 $n_\text{out}\times n_\text{in}$으로 나와 $W$의 shape과 맞아떨어지기 때문이다.
+
+- $Z=XW+b$의 역전파를 해 보자
+
+  $$
+  \frac{\partial L}{\partial X}=\frac{\partial L}{\partial Z}W^\top\quad (m,n_\text{out})\times (n_\text{out},n_\text{in})=(m,n_\text{in})\\[1em]
+\frac{\partial L}{\partial W}=X^\top\frac{\partial L}{\partial Z}\quad (n_\text{in}, m)\times (m,n_\text{out})=(n_\text{in},n_\text{out})
+  $$
+
+  - 같은 bias $\mathbf b\in\mathbb R^{n_\text{out}}$가 모든 샘플에 더해지고, 샘플마다 $\mathbf b$에 대한 기울기를 따로 만든다
+    - 따라서 이 기울기들은 누적된다
+
+    $$
+    \frac{\partial L}{\partial b_j}=\sum_{i=1}^m\frac{\partial L}{\partial z_{ij}}\cdot\frac{\partial z_{ij}}{\partial b_j}=\sum_{i=1}^m\frac{\partial L}{\partial z_{ij}}\cdot 1=\sum_{i=1}^m\frac{\partial L}{\partial z_{ij}}
+    $$
+
+  - 가장 직관적으로 이해하는 방법
+    - $X$가 예제 하나일 때 $\partial L/\partial X$는 $\partial L/\partial Z \cdot W^\top (n_\text{in})$임을 안다
+    - $X$에 batch 차원이 있으면, 구하려는 출력의 shape이 $(m,n_\text{in})$임을 안다
+    - $Z$의 각 행 $i$는 $X$의 행 $i$에만 의존한다(batch 예제끼리는 상호작용하지 않음)
+    - 그러니 행별 기울기를 그냥 쌓으면 된다
+  - 일반적으로는 예제 하나에 대한 Jacobian부터 유도한다(깔끔한 2차원)
+    - 텐서가 batch 전체에서 공유되면($W$처럼) batch 차원을 합해 없앤다 → contract(batch 차원이 안쪽 차원이 되는 matmul)
+    - 텐서가 공유되지 않으면($X$, activation처럼) batch 차원이 유지된다 → stack(batch 차원을 안쪽에 둔 matmul)
+  - 참고로 $W\in\mathbb R^{n_\text{out}\times n_\text{in}}$인 $Z=XW^\top$ 형태의 PyTorch 구현에서는 다음과 같다
+
+    $$
+    \frac{\partial L}{\partial X}=\frac{\partial L}{\partial Z} W\quad (m,n_\text{out})\times (n_\text{out}, n_\text{in})=(m,n_\text{in})\\[1em]
+\frac{\partial L}{\partial W}=\left(\frac{\partial L}{\partial Z}\right)^\top X\quad (n_\text{out}, m)\times (m,n_\text{in})=(n_\text{out},n_\text{in})
+    $$
+
+## 활성화 함수 (Activation functions)
+
+- **sigmoid** $\sigma(x)\in(0,1)$
+
+  $$
+  \sigma(x)=\frac{1}{1+e^{-x}}
+  $$
+
+  - 출력을 확률로 해석하기에 좋다
+  - 신경망의 은닉층에는 쓰지 않는다
+    - 도함수가 $\sigma(x)(1-\sigma(x)) \leq 0.25$이므로 기울기 소실(vanishing gradient)이 생긴다
+    - 0 중심이 아니어서, 한 노드의 downstream 기울기가 (upstream 기울기에 따라) 모두 양수이거나 모두 음수가 된다
+- **tanh** $\in(-1,1)$
+
+  $$
+  \tanh(x)=\frac{e^x-e^{-x}}{e^x+e^{-x}}=2\sigma(2x)-1
+  $$
+
+  - 도함수 최댓값은 1.0($x=0$일 때)이고, 여전히 소실될 수 있다
+  - $\tanh^\prime(z)=1-\tanh^2(x)\in(0,1]$이므로 $\tanh^\prime$ 인자는 곱할수록 줄어들기만 한다
+- **softmax** → 확률 분포
+
+  $$
+  \text{softmax}(\mathbf x)_i=\frac{e^{x_i}}{\sum_j e^{x_j}}
+  $$
+
+  - temperature 적용 시
+
+    $$
+    \text{softmax}(\mathbf x/T)_i=\frac{e^{x_i/T}}{\sum_j e^{x_j/T}}
+    $$
+
+- **ReLU** $\in(0, \infty)$
+
+  $$
+  \operatorname{ReLU}(x)=\max(x,0)
+  $$
+
+  - 도함수는 $x>0$이면 1, $x<0$이면 0
+  - dying ReLU: pre-activation이 영구적으로 음수가 되면(즉 모든 입력에 대해 음수) 영원히 기울기 0을 받는다
+    - 학습 중에 네트워크 일부가 죽어 버릴 수 있다
+- **Leaky ReLU** $\in(-\infty,\infty)$
+
+  $$
+  \text{LeakyReLU}(x)=\begin{cases}x&\text{if }x>0\\\alpha x&\text{if }x\leq0\end{cases}
+  $$
+
+  - dying ReLU 문제를 해결한다
+- **Swish** (매끄럽고 단조롭지 않음)
+
+  $$
+  \text{Swish}(x)=x\cdot\sigma(x)
+  $$
+
+- **GLU**는 한 linear projection으로 “내용”[왼쪽]을, 다른 projection으로 gate[오른쪽]를 만든다
+
+  $$
+  \text{GLU}(x)=xW_1\odot\sigma(xW_2)
+  $$
+
+- **SwiGLU**는 GLU 안의 활성화 함수 자리에 Swish를 넣은 것이다
+
+  $$
+  \text{SwiGLU}(x)=(x W_1)\odot \text{Swish}(xW_2)
+  $$
+
+- 비선형성이 없으면 신경망은 선형 변환 이상을 할 수 없다
+  - 층을 더 쌓아도 하나의 선형 변환 $W_1 W_2x=Wx$로 합쳐진다
+  - 비선형성 없이 층만 늘려서는 표현력이 늘지 않는다
+  - 비선형성을 포함한 층을 더 쌓으면 어떤 복잡한 함수든 근사할 수 있다!
+
+![](img/2e198270-800f-4438-8eed-e6c186ce9e14.png)
+
+## 기울기 (Gradients)
+
+- 어떤 변수에 대한 도함수는 전체 식이 그 값에 얼마나 민감한지를 알려 준다
+  - $\partial f/\partial x=3$이면, $x$를 작은 $h$만큼 바꿀 때 $f(x)$는 약 $\sim 3h$만큼 변한다
+
+  $$
+  \frac{df(x)}{dx}=\frac{f(x+h)-f(x)}{h}
+  $$
+
+- 기울기(gradient) $\nabla f$는 편도함수들의 벡터다
+- 출력이 $m$개, 입력이 $n$개인 함수에서 **Jacobian**은 편도함수로 이뤄진 $m\times n$ 행렬이다
+
+  $$
+  f(\mathbf{x})=[f_1(x_1,...,x_n),...,f_m(x_1,...,x_n)]\\[1em]
+\frac{\partial f}{\partial x}=\begin{bmatrix}\frac{\partial f_1}{\partial x_1}&\cdots &\frac{\partial f_1}{\partial x_n}\\
+\vdots&\ddots&\vdots\\
+\frac{\partial f_m}{\partial x_1}&\cdots&\frac{\partial f_m}{\partial x_n}\end{bmatrix}
+  $$
+
+- 입력이 $n$개이고 출력이 스칼라인 함수에서 **Hessian**은 2계 편도함수로 이뤄진 $n\times n$ 행렬이며, $H_{ij}=\frac{\partial^2 f}{\partial x_i\partial x_j}$이다
+  - 손실 함수의 Hessian은 loss landscape의 곡률을 알려 준다
+- 연쇄 법칙(chain rule)
+  - 일변수 함수의 합성에서는 도함수를 곱한다
+
+    $$
+    x=3y, y=x^2\\[1em]
+\frac{dz}{dx}=\frac{dz}{dy}\frac{dy}{dx}=3\cdot 2x=6x
+    $$
+
+  - 다변수 함수에서는 Jacobian을 곱한다
+
+    $$
+    \mathbf h=f(\mathbf z), \mathbf z=\mathbf W\mathbf x+\mathbf b\\[1em]
+\frac{\partial\mathbf h}{\partial\mathbf x}=\frac{\partial\mathbf h}{\partial\mathbf z}\frac{\partial\mathbf z}{\partial\mathbf x}=\cdots
+    $$
+
+- 신경망 설정
+
+  $$
+  \begin{align*}\mathbf x&\in\mathbb{R}^d\\
+\mathbf h&=f(\mathbf W\mathbf x+\mathbf b)\in\mathbb{R}^k & \mathbf W\in\mathbb{R}^{k\times d},\mathbf b\in\mathbb{R}^k\\
+\mathbf s&=\mathbf u^\intercal\mathbf h\in\mathbb{R} & \mathbf u\in\mathbb{R}^k\end{align*}
+  $$
+
+![](img/4be70ca9-5b1c-471a-8940-35983cdf3ce7.png)
+
+- $\mathbf h,\mathbf z\in\mathbb{R}^n$인 원소별(element-wise) 활성화 함수 $\mathbf h=f(\mathbf z)$에서 ${\partial\mathbf h}/{\partial\mathbf z}$는?
+
+  $$
+  \left(\frac{\partial \mathbf h}{\partial \mathbf z}\right)_{ij}=\frac{\partial h_i}{\partial z_j}=\frac{\partial}{\partial z_j}f(z_i)=\begin{cases}f'(z_i)&\text{if }i=j\\0&\text{otherwise}\end{cases}
+  $$
+
+  - Jacobian은 대각 행렬이다
+
+  $$
+  \frac{\partial\mathbf h}{\partial \mathbf z}=\begin{bmatrix}f'(z_1)&&\\
+&\ddots&\\
+&&f'(z_n)\end{bmatrix}=\operatorname{diag}(f'(\mathbf z))
+  $$
+
+- 유용한 Jacobian
+
+  $$
+  \frac{\partial}{\partial \mathbf x}(\mathbf W\mathbf x+\mathbf b)=\begin{bmatrix}\ddots&&\\&\frac{\partial z_i}{\partial x_j}\\&&\ddots\end{bmatrix}=\begin{bmatrix}\ddots&&\\&W_{ij}\\&&\ddots\end{bmatrix}=\mathbf W\\[1em]
+\frac{\partial}{\partial \mathbf b}(\mathbf W\mathbf x+\mathbf b)=\mathbf I\\[1em]
+\frac{\partial}{\partial \mathbf z} f(\mathbf z)=\operatorname{diag}(f'(\mathbf z))\\[1em]
+\frac{\partial}{\partial \mathbf u}(\mathbf u^\intercal\mathbf h)=\mathbf h^\intercal
+  $$
+
+- 그 밖에 유용한 도함수
+
+  $$
+  \begin{align*}
+\frac{d}{dx} \frac 1x &=-\frac{1}{x^2}\\
+\frac{d}{dx} e^x &= e^x\\
+\frac{d}{dx} \sigma(x) &= (1-\sigma(x))\sigma(x)\quad\text{[using quotient rule]}\\
+\frac{d}{dx}\log x &= \frac 1x\\
+\frac{d}{dx}\tanh(x) &= 1-\tanh^2(x)
+\end{align*}
+  $$
+
+  - sigmoid의 도함수 구하는 법
+
+    $$
+    \begin{align*}
+\frac{d}{dx}\sigma(x) &= \frac{d}{dx}(1+e^{-x})^{-1} \\
+&=(1+e^{-x})^{-2}\cdot e^{-x}&\text{chain rule}\\
+&= \frac{e^{-x}}{(1+e^{-x})^2}\\
+&= \frac{1}{1+e^{-x}}\cdot\frac{e^{-x}}{1+e^{-x}}\\
+&=\sigma(x)\cdot(1-\sigma(x))
+\end{align*}
+    $$
+
+- Swish의 도함수
+
+  $$
+  \begin{align*}
+\frac{\partial}{\partial x}\text{Swish}(x)&=\frac{\partial}{\partial x}x\cdot\sigma(x)\\
+&=\sigma(x)+x\cdot\sigma'(x)&\text{product rule}\\
+&=\sigma(x)+x\cdot\sigma(x)(1-\sigma(x))&\text{derivative of sigmoid}\\
+&=\sigma(x)+x\sigma(x)-x\sigma(x)^2\\
+&=\sigma(x)+\text{Swish}(x)(1-\sigma(x))
+\end{align*}
+  $$
+
+- softmax + CE loss의 기울기
+  - $\mathbf z\in\mathbb R^{\mathcal V}$를 $i\in\{1,…,\mathcal V\}$로 인덱싱되는 logit, $\mathbf p\in\mathbb R^{\mathcal V}$를 softmax 이후 확률이라 하자
+
+  $$
+  p_i=\frac{e^{z_i}}{\sum_je^{z_j}}
+  $$
+
+  - CE loss 기울기 $\partial L/\partial \mathbf p$
+    - $L=-\log p_t$, 여기서 $t$는 정답 클래스
+    - 기울기는
+
+      $$
+      \frac{\partial L}{\partial p_i}=\begin{cases}-\frac{1}{p_t}&\text{if }i=t\\0&\text{otherwise}\end{cases}
+      $$
+
+      $$
+      \frac{\partial L}{\partial \mathbf p}=\begin{bmatrix}0&\cdots&-\frac{1}{p_t}&\cdots &0\end{bmatrix}\in\mathbb R^{\mathcal V}
+      $$
+
+    - 연쇄 법칙으로 $\partial L/\partial\mathbf z$를 $\partial \mathbf p/\partial\mathbf z$로 표현한다
+      - $\frac{\partial L}{\partial p_i}$는 $i=t$일 때만 0이 아니므로 대부분의 항이 사라진다
+
+      $$
+      \frac{\partial L}{\partial z_i}=\sum_{j}\frac{\partial L}{\partial p_j}\frac{\partial p_j}{\partial z_i}=-\frac{1}{p_t}\frac{\partial p_t}{\partial z_i}
+      $$
+
+      $$
+      \frac{\partial L}{\partial\mathbf z}=\frac{\partial L}{\partial\mathbf p}\frac{\partial\mathbf p}{\partial\mathbf z}=\begin{bmatrix}0&\cdots&-\frac{1}{p_t}&\cdots &0\end{bmatrix}\begin{bmatrix}\frac{\partial p_1}{\partial z_1}&\cdots&\frac{\partial p_1}{\partial z_{\mathcal V}}\\&\ddots&\\\frac{\partial p_{\mathcal V}}{\partial z_1}&\cdots&\frac{\partial p_{\mathcal V}}{\partial z_{\mathcal V}}\end{bmatrix}=-\frac{1}{p_t}\frac{\partial p_t}{\partial z_i}\in\mathbb R^{\mathcal V}
+      $$
+
+  - 이제 softmax 기울기 $\partial \mathbf p/\partial\mathbf z$를 계산하자
+
+    $$
+    \frac{\partial\mathbf p}{\partial\mathbf z}=\begin{bmatrix}\frac{\partial p_1}{\partial z_1}&\cdots&\frac{\partial p_1}{\partial z_{\mathcal V}}\\&\ddots&\\\frac{\partial p_{\mathcal V}}{\partial z_1}&\cdots&\frac{\partial p_{\mathcal V}}{\partial z_{\mathcal V}}\end{bmatrix}\in\mathbb R^{\mathcal V\times\mathcal V}
+    $$
+
+    $$
+    \frac{\partial p_j}{\partial z_i}=
+\begin{cases}p_j(1-p_j)&\text{if }i=j\\
+-p_jp_i&\text{if }i\neq j
+\end{cases}
+    $$
+
+  - 모두 합쳐 $\partial L/\partial\mathbf z$ 구하기
+    - 정답 token $(i=t)$에 대해
+
+    $$
+    \frac{\partial L}{\partial z_t}=-\frac{1}{p_t}\frac{\partial p_t}{\partial z_t}=-\frac{1}{p_t}\cdot p_t(1-p_t)=p_t-1
+    $$
+
+    - 나머지 모든 token에 대해
+
+    $$
+    \frac{\partial L}{\partial z_i}=-\frac{1}{p_t}\cdot(-p_tp_i)=p_i
+    $$
+
+  - 아주 깔끔한 결과: $\partial L/\partial\mathbf z = \mathbf p - \operatorname{one\_hot}(t)$
+
+## 역전파 (Backpropagation)
+
+- 신경망 식은 계산 그래프(computation graph)로 표현된다
+  - 함수의 어느 부분을 “gate”로 볼지는 편의의 문제이며, 보통 local 기울기가 쉬운 식의 일부를 gate로 잡는다
+- **역전파(backpropagation)**는 gate들이 loss를 줄이기 위해 자기 출력이 커지길 원하는지 작아지길 원하는지(그리고 얼마나 강하게 원하는지)를 (기울기 신호를 통해) 서로 주고받는 과정으로 볼 수 있다
+  - 연쇄 법칙을 반복 적용해 이뤄지며, 연쇄 법칙 덕분에 각 기울기를 upstream 기울기(이미 계산됨)와 local 기울기로 분해할 수 있다
+- 그래프의 각 노드는 upstream 기울기를 받아 downstream 기울기를 내려보낸다
+  - 각 노드에는 local 기울기(입력에 대한 출력의 기울기)가 있다
+  - downstream 기울기 = upstream 기울기 $\times$ local 기울기
+
+![](img/fc1a9d91-6e6f-488a-86c0-4c6bc916d72f.png)
+
+- 바깥으로 갈라지는 분기에서는 기울기를 더한다
+  - $y$가 $a$와 $b$ 계산에 모두 쓰이면 $\frac{\partial f}{\partial y}=\frac{\partial f}{\partial a}\frac{\partial a}{\partial y}+\frac{\partial f}{\partial b}\frac{\partial b}{\partial y}$
+- 노드별 직관
+  - $+$는 upstream 기울기를 각 피가수에 그대로 나눠 준다
+  - $\max$는 upstream 기울기를 여러 입력 인자 중 하나로 “라우팅”한다
+  - $\times$는 downstream 기울기에서 forward 계수를 서로 맞바꾼다
+- 역전파 절차
+  - 출력 기울기를 1로 초기화한다
+  - 노드를 역 위상 정렬 순서로 방문한다: 후속 노드에 대한 기울기를 써서 각 노드에 대한 기울기를 계산한다
+  - 제대로 구현하면 forward prop과 역전파의 big-$O$ 복잡도는 같다
+- 자동 미분(automatic differentiation)
+  - 기울기 계산은 forward prop의 기호식으로부터 자동으로 유도할 수 있다
+  - 각 노드 타입은 자기 출력을 계산하는 법과, 출력에 대한 기울기가 주어졌을 때 입력에 대한 기울기를 계산하는 법을 알아야 한다
+    - local 기울기는 프로그래머가 작성한다
+- 수동 기울기 검증
+  - 모든 파라미터 $x$에 대해 $x-h$와 $x+h$에서 $f$를 다시 계산해 다음을 확인한다
+
+    $$
+    f'(x)\approx \frac{f(x+h)-f(x-h)}{2h}
+    $$
+
+- backward pass에서는 중간 activation이 필요하다
+  - 그래서 신경망은 보통 forward pass 동안 모든 중간 activation을 저장한다
+  - **activation / gradient checkpointing**은 activation의 일부(“checkpoint”)만 저장해 메모리를 아끼는 대신 연산을 더 쓴다 — 저장하지 않은 activation이 필요하면 가장 가까운 checkpoint부터 부분 forward pass를 돌려 즉석에서 다시 계산한다
+    - N개 층을 K개 구간으로 checkpoint하는 모델의 경우
+      - 메모리는 $O(N)$에서 $O(K+N/K)$로 바뀐다
+      - backward 연산량은 $O(N)$에서  $O(N + N*(K-1)/K)$로 바뀐다
+      - 최적 선택은 $K=\sqrt{N}$: 메모리 $O(\sqrt{N})$, backward 연산량 $\sim O(2N)$
+- 연습해 볼 것
+  - $\partial f/\partial x$의 명시적 식을 구하면 엄청나게 복잡하겠지만, 그럴 필요가 전혀 없다!
+  - forward pass에서 중간 변수를 여러 개 만들고, 각각을 local 기울기를 아는 단순한 식으로 둔다
+
+  $$
+  f(x,y)=\frac{x+\sigma (y)}{\sigma(x)+(x+y)^2}
+  $$
+
+- 역전파는 모든 파라미터 $\theta$에 대해 $\partial L/\partial\theta$, 즉 파라미터당 숫자 하나를 계산하므로 스칼라에서 시작해야 한다 — 이는 $L$이 스칼라일 때만 말이 된다
+  - 스칼라에 `.backward()`를 호출하면 PyTorch는 암묵적으로 $\partial L/\partial L=1$로 backward pass를 시작한다
+  - token별 loss $\ell_1,…,\ell_n$이 있고 $L=\frac 1N\sum_i\ell_i$(mean reduction)로 정의하면, 미분의 선형성에 의해 다음이 성립한다
+
+    $$
+    \frac{\partial L}{\partial\theta}=\frac 1N\sum_{i=1}^N\frac{\partial\ell_i}{\partial\theta}
+    $$
+
+    - 따라서 평균 loss에서 얻은 기울기는 각 $\ell_i$를 따로 역전파해 얻은 기울기의 평균과 정확히 같다
+- upstream 기울기는 항상 activation에 대한 것이다. 파라미터는 계산 그래프의 leaf 노드이므로, 파라미터에 대한 기울기는 업데이트에 쓰이고 거기서 끝난다
+
+  ```python
+  loss
+    │  dL/dy2 (activation grad)
+    ▼
+  Layer 2 ──→ dL/dW2 (param grad, stored)
+    │  dL/dy1 (activation grad)
+    ▼
+  Layer 1 ──→ dL/dW1 (param grad, stored)
+    │  dL/dx  (activation grad — usually discarded)
+    ▼
+  input
+  ```
+
+## 옵티마이저 (Optimizers)
+
+- 기본 SGD 업데이트
+
+  $$
+  \theta\leftarrow \theta-\eta g_t
+  $$
+
+- **옵티마이저(optimizer)**는 파라미터 업데이트의 방향과 크기를 정한다
+- Adam은 파라미터 텐서마다 다음을 유지한다:
+  1. 파라미터 자체($\theta$)
+  1. 기울기($g$)
+  1. 1차 모멘트(momentum)
+  1. 2차 모멘트(분산)
+- **Adam 옵티마이저**
+
+  $$
+  \theta\leftarrow\theta-\eta\frac{\hat m}{\sqrt{\hat v}+\epsilon}
+  $$
+
+  - $g$를 현재 step의 기울기라 하자
+  - 1차 모멘트 $m$은 기울기의 이동 평균이다
+
+    $$
+    m\leftarrow\beta_1 m+(1-\beta_1)g
+    $$
+
+    - 결과: 기울기가 꾸준히 한 방향을 가리켜 왔다면 그 방향으로 더 확신 있게 움직인다
+      - 시간에 따라 속도를 누적해 노이즈 낀 기울기를 밀고 나가는 데 도움이 된다
+  - 2차 모멘트 $v$는 기울기 제곱의 이동 평균이다
+
+    $$
+    v\leftarrow\beta_2 v+(1-\beta_2)g^2
+    $$
+
+    - 결과: 가중치마다 사실상 다른 learning rate를 갖게 된다 — 기울기가 꾸준히 크면 → step이 작아진다
+      - 사실상 기울기를 같은 스케일로 정규화하는 효과
+  - bias 보정: 학습 초기에 이동 평균의 초기화 편향을 보정한다
+    - 시간은 1부터 시작하는 time step $t$ 기준(아니면 $t+1$ 사용)
+
+    $$
+    \hat m_t=\frac{m_t}{1-\beta_1^t},\quad\hat v_t=\frac{v_t}{1-\beta_2^t}
+    $$
+
+  - 하이퍼파라미터 $\beta_1$과 $\beta_2$가 모멘트 추정치의 업데이트를 조절한다
+  - $m$과 $v$는 모두 $0$으로 초기화한다
+  - 따라서 파라미터당 메모리 ≈ 파라미터 크기의 4배
+- **AdamW**는 Adam에 0을 향하는 **weight decay**를 추가한 것이다
+
+  $$
+  \theta\leftarrow\theta-\eta\frac{\hat m}{\sqrt{\hat v}+\epsilon}-\eta\lambda \theta
+  $$
+
+- 옵티마이저는 모델 파라미터(어떤 값을 최적화할지 알려 줌)와, 업데이트 크기를 정하는 `lr` 파라미터로 초기화한다
+- 어떤 것을 LR schedule로 둘지 옵티마이저로 둘지 어떻게 정할까?
+  - time step $t$에만 의존 → 아마 LR schedule
+  - ~파라미터별 이력이 필요 → 옵티마이저
+- 코드는 다음과 같다
+  - `params`는 각자 하이퍼파라미터를 갖는 파라미터 그룹을 만드는 데 쓴다(예: 층마다 다른 learning rate)
+    - `torch.optim.AdamW(model.parameters())`는 파라미터 그룹 하나를 만든다
+    - 보통 bias와 LayerNorm 파라미터에는 weight decay를 적용하지 않는다
+
+      ```python
+      torch.optim.AdamW([
+          {'params': decay_params, 'weight_decay': 0.01},
+          {'params': no_decay_params, 'weight_decay': 0.0},
+      ])
+      ```
+
+  - `defaults` dict는 파라미터 그룹에 명시하지 않은 하이퍼파라미터의 기본값을 제공한다
+  - weight decay는 파라미터 값에 의존하므로, 실제로는 Adam 업데이트 전에 적용하는 편이 낫다
+
+```python
+class AdamW(torch.optim.Optimizer):
+    def __init__(self, params, lr, betas, eps, weight_decay):
+        if lr < 0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0 < betas[0] < 1 or not 0 < betas[1] < 1:
+            raise ValueError(f"Invalid beta values: {betas}")
+        defaults = {"lr": lr, "betas": betas, "eps": eps, "weight_decay": weight_decay}
+        super().__init__(params, defaults)
+
+    def step(self):
+        for group in self.param_groups:  # 파라미터 그룹마다
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:  # 그룹 안의 파라미터마다
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+
+                # 상태를 0으로 초기화
+                t = state.get("t", 0)
+                m, v = state.get("m", torch.zeros_like(p.data)), state.get("v", torch.zeros_like(p.data))
+
+                # weight decay
+                p.data -= lr * weight_decay * p.data
+
+                # Adam 업데이트
+                grad = p.grad.data
+                m = beta1 * m + (1 - beta1) * grad
+                v = beta2 * v + (1 - beta2) * grad**2
+                m_hat = m / (1 - beta1 ** (t + 1))
+                v_hat = v / (1 - beta2 ** (t + 1))
+                p.data -= lr * m_hat / (v_hat.sqrt() + eps)
+
+                # 옵티마이저 상태 갱신
+                state["t"] = t + 1
+                state["m"] = m
+                state["v"] = v
+```
+
+- **gradient clipping**은 기울기 norm의 크기를 제한한다
+  - *모든 *기울기의 전역 norm을 계산한다
+  - 최댓값을 넘으면 모든 파라미터를 같은 비율로 줄여 최댓값 아래로 맞춘다
+  - 어느 한 step이 파국적으로 커지는 것을 막는다
+
+## 학습률 (Learning rate)
+
+- warmup은 초기 학습 예제의 초두 효과(primacy effect)를 줄인다
+
+---
+
+# 수학적인 것들 (Mathy things)
+
+## 정보 이론 (Information theory)
+
+- **교차 엔트로피(cross entropy)**
+
+  $$
+  \operatorname{CE}(p,q)=-\mathbb E_p[\log q]=-\sum_{x\in\mathcal X}p(x)\log q(x)
+  $$
+
+- **KL divergence**
+
+  $$
+  \operatorname{KL}(p\mid\mid q)=\sum_{x\in\mathcal X}p(x)(\log p(x)-\log q(x))
+  $$
+
+- **엔트로피(entropy)**
+
+  $$
+  H(p)=-\sum_{x\in\mathcal X}p(x)\log p(x)
+  $$
+
+  - logit $x_i$가 주어졌을 때 자주 쓰는 또 다른 형태
+
+    $$
+    H(p)=\log\sum_ie^{x_i}-\underbrace{\frac{\sum_ie^{x_i}x_i}{\sum_i e^{x_i}}}_{\mathbb E[x]}
+    $$
+
+- $p$와 $q$ 사이의 교차 엔트로피는 $p$와 $q$ 사이의 KL에 $p$의 줄일 수 없는 엔트로피를 더한 것이다
+
+  $$
+  \operatorname{CE}(p,q)=\operatorname{KL}(p\mid\mid q)+H(p)
+  $$
+
+  - 증명
+
+    $$
+    \begin{align*}
+\operatorname{KL}(p\mid\mid q)&=\sum_{x\in\mathcal X}p(x)(\log p(x)-\log q(x))\\
+&=\sum_{x\in\mathcal X}p(x)\log p(x)-\sum_{x\in\mathcal X}p(x)\log q(x)\\
+&=-H(p)+\operatorname{CE}(p,q)
+\end{align*}
+    $$
+
+- **교차 엔트로피 손실(cross-entropy loss)**
+  - 목표 분포가 1-hot이면 교차 엔트로피 손실은 다음 token의 음의 로그 우도(negative log likelihood)다
+
+  $$
+  \mathcal L(x)=-\sum_{t=1}^T\log p(x_t\mid x_{<t})
+  $$
+
+  - KL divergence와도 동치다
+  - 손실 구현
+    - `F.cross_entropy()`를 쓰면 logit과 label이 내부에서 shift된다
+      - `loss = F.cross_entropy(logits.view(-1, vocab_size), targets.view(-1), ignore_index=pad_idx)`
+
+  ```python
+  shift_logits = logits[:, :-1, :]
+  shift_labels = input_ids[:, 1:]
+  logprobs = F.log_softmax(shift_logits, dim=-1)
+  token_logprobs = logprobs.gather(index=shift_labels.unsqueeze(-1), dim=-1).squeeze(-1)
+  # 손실 마스크 생성
+  masked_logprobs = -token_logprobs * mask.float()
+  return masked_logprobs.sum() / mask.sum()
+  ```
+
+## 수치 안정성과 기타 트릭 (Numerical stability and other tricks)
+
+- 일반적으로 주의할 점
+  - 큰 x에 대한 exp(x) → $\infty$로 오버플로
+  - 0에 가까운 x에 대한 log(x) → $-\infty$로 언더플로 ($\log(0)=-\infty$)
+  - 1에 가까운 x에 대한 log(x) → 정밀도 문제 ($\log(1) = 0$)
+- `softmax(x)` 계산
+  - 큰 $x_i$에서 $\exp(x_i)$가 오버플로하므로 불안정하다
+  - *softmax는 상수를 빼도 불변*이라는 사실을 이용한다
+
+    $$
+    \begin{align*}
+\text{softmax}(x)_i &= \frac{e^{x_i}}{\sum_j e^{x_j}}\\
+&= \frac{e^{x_i-c}\cdot e^c}{\sum_j e^{x_j-c}\cdot e^c}\\
+&= \frac{e^{x_i-c}\cdot e^c}{e^c\cdot \sum_j e^{x_j-c}}\\
+&= \frac{e^{x_i-c}}{\sum_j e^{x_j-c}}\\
+&=\text{softmax}(x-c)_i
+\end{align*}
+    $$
+
+  - 모든 $x_i$에서 $x_\text{max}$를 빼면 $x_i$가 커지지 않으므로(가장 큰 지수 항이 $\exp(0)=1$) 수치적으로 안정적인 구현은 이렇게 한다
+
+    $$
+    \text{softmax}(x)_i=\frac{e^{x_i-x_\text{max}}}{\sum_j e^{x_j-x_\text{max}}}
+    $$
+
+- `log(softmax(x))` 계산
+  - 0에 가까운 입력(확률이 낮은 클래스)의 log가 불안정하므로 log-softmax를 그대로 계산하면 안 된다
+  - 대신 `x - logsumexp(x)`를 쓴다. 아주 작은 확률값을 직접 만들지 않아도 되고 `logsumexp(x)`는 안정적이다
+  - 두 식은 동치다
+
+  $$
+  \begin{align*}
+\log(\text{softmax}(x))_i &= \log \frac{e^{x_i}}{\sum_j e^{x_j}}\\
+&= \log e^{x_i}-\log\sum_j e^{x_j}\\
+&= x_i-\log\sum_j e^{x_j}
+\end{align*}
+  $$
+
+- `log(sum(exp(x)))` 계산
+  - 왜 불안정한가?
+    - 큰 $x_i$가 하나라도 있으면 $\exp(x_i)$가 무한대로 오버플로한다
+      - 예: float32에서는 $x_i\approx 83$이면 오버플로
+    - 모든 $x_i$가 매우 큰 음수면 $\log(0)$이 되어 $-\infty$로 언더플로한다
+    - 합이 1에 가까우면 $\log(1)$이 불안정하므로 정밀도 문제가 생긴다
+      - 우리 distillation 프로젝트에서 겪은 문제가 바로 이것
+  - 직관: $x_i$ 값을 작게 만들고 싶은데, 상수를 빼면 된다! 마지막에 그 상수를 다시 더해 주기만 하면 된다
+  - `logsumexp(x)`는 이렇게 구현된다
+
+    $$
+    \begin{align*}
+\log\sum_i e^{x_i}&=\log\sum_i\left(e^{x_i-x_\text{max}} \cdot e^{x_\text{max}}\right)\\
+&= \log \left(e^{x_\text{max}}\sum_i e^{x_i-x_\text{max}}\right)\\
+&=\log e^{x_\text{max}}+\log\sum_ie^{x_i-x_\text{max}}\\
+&= x_\text{max}+\log\sum_i e^{x_i-x_\text{max}}
+\end{align*}
+    $$
+
+    - 가장 큰 항이 $e^0=1$($x_i=x_\text{max}$일 때)이므로 오버플로가 없다
+    - 합이 최소 1이므로 $\log(0)$을 계산할 일이 없다
+- 단순하게 하면 softmax 계산에 두 번의 pass가 필요하다. 먼저 $x_\text{max}$(안정성용)를 구하고, 그다음 분모 $\sum_j e^{x_j-x_\text{max}}$를 구한다
+  - 안정적인 softmax
+
+    $$
+    \text{softmax}(x)_i=\frac{e^{x_i-x_\text{max}}}{\sum_j e^{x_j-x_\text{max}}}
+    $$
+
+  - **online softmax 트릭**: $x_\text{max}$와 분모 $\sum_j e^{x_j-x_\text{max}}$ 계산을 하나의 pass로 합친다
+    - 아이디어: 지금까지의 최댓값으로 분모를 계산하고, 최댓값이 새로 바뀔 때마다 계속 rescale한다
+    - 유지하는 값
+      - 누적 최댓값 $m_k=\max(x_1,...,x_k)$
+      - 누적 (shift된) 분모 $d_k=\sum_j e^{x_j-m_k}$
+    - 업데이트 규칙: $x_{k+1}$을 만났을 때
+
+      $$
+      m_{k+1}\leftarrow\max(m_k,x_{k+1})\\
+d_{k+1}\leftarrow d_k\cdot e^{m_k-m_{k+1}}+e^{x_{k+1}-m_{k+1}}
+      $$
+
+    - $d_{k+1}$ 업데이트가 맞는 이유
+
+      $$
+      \begin{align*}
+d_{k+1}&=\sum_{j=1}^{k+1}e^{x_j-m_{k+1}}\\
+&= e^{x_{k+1}-m_{k+1}}+\sum_{j=1}^k e^{x_j-m_{k+1}}&\text{split off last term}\\
+&= e^{x_{k+1}-m_{k+1}}+\sum_{j=1}^k e^{x_j-m_k+m_k-m_{k+1}}&\text{algebraic manipulation}\\
+&= e^{x_{k+1}-m_{k+1}}+\sum_{j=1}^k e^{x_j-m_k}e^{m_k-m_{k+1}}\\
+&= e^{x_{k+1}-m_{k+1}}+e^{m_k-m_{k+1}}\underbrace{\sum_{j=1}^k e^{x_j-m_k}}_{d_k}&\text{pull out a constant}\\
+&= \underbrace{d_k\cdot e^{m_k-m_{k+1}}}_\text{rescaling of prev terms}+\underbrace{e^{x_{k+1}-m_{k+1}}}_\text{new term}&\text{express in terms of }d_k\text{, reorder}
+\end{align*}
+      $$
+
+      - 최댓값이 바뀌지 않으면 $m_k=m_{k+1}$이고 rescaling 계수 $e^{m_k-m_{k+1}}=1$이 된다
+    - softmax 자체를 반환하는 게 목표라면 logit을 한 번 더 훑어서 $e^{x_i-m_S}/d_S$를 반환해야 한다
+- logit $x_i$와 값 $v_i$의 스트림이 주어졌을 때 가중합을 계산하는 데도 쓸 수 있다
+
+  $$
+  o=\sum_ip_iv_i=\sum_i\frac{e^{x_i}}{\sum_j e^{x_j}}v_i=\frac{\sum_i e^{x_i}v_i}{\sum_i e^{x_i}}
+  $$
+
+  - FlashAttention에서 $o$는 각 query $q$의 attention 출력에 해당하고, $x_i=q\cdot k_i$이며 $v_i$는 value 벡터다
+  - 수치적으로 안정적인 버전은 분자와 분모에 모두 $e^{-x_\text{max}}$를 곱한다($e^{x_i}$의 오버플로 방지)
+
+    $$
+    o=\frac{\sum_i e^{x_i-x_\text{max}}v_i}{\sum_i e^{x_i-x_\text{max}}}
+    $$
+
+  - $m_k$, $d_k$에 더해 누적 분자 $o_k\in\mathbb R^H$도 유지한다($H$ = 각 $v_i$의 차원, FlashAttention에서는 head 차원)
+
+    $$
+    o_k=\sum_{i=1}^ke^{x_i-m_k}v_i
+    $$
+
+    - 업데이트는 $d_k$ 업데이트와 같은 아이디어를 쓴다(유도 과정도 $d_k$와 똑같다)
+
+      $$
+      o_k=o_k\cdot e^{m_k-m_{k+1}}+ \underbrace{e^{x_{k+1}-m_{k+1}}v_{k+1}}_\text{new term}
+      $$
+
+  - $N$개 logit을 모두 처리하면 $(m_N, d_N, o_N)$이 남고, 실제 attention 출력은 그냥 $o_N/d_N$이다
+
+> $e^{x}$가 들어간 식을 수치적으로 안정하게 만들어야 할 때 표준적인 방법은 $e^{-m}$을 곱해 보고($m$은 큰 수로, 보통 $m=x_\text{max}$로 잡는다) 무엇이 남는지 보는 것이다.
+
+## 기초 통계 (Basic statistics)
+
+- $p$-value: 귀무가설(null hypothesis)이 참일 때 (최소한 이만큼 극단적인) 데이터를 관측할 확률
+  - 핵심은 귀무가설이 주어졌을 때 데이터의 확률이지, 데이터가 주어졌을 때 귀무가설의 확률이 아니라는 점
+- 이 그룹들은 서로 다른가?
+  - **Kolmogorov-Smirnov 검정**: 연속 변수에 대한 두 관측 그룹이 같은 분포에서 뽑혔는가?
+    - 두 표본의 CDF 사이 최대 수직 거리를 측정한다
+  - **카이제곱 검정(Chi-squared test)**: 범주형 변수에 대한 두 관측 그룹이 같은 분포에서 뽑혔는가?
+  - **T-검정(T-test)**: 연속형 관측값으로 이루어진 두 그룹의 평균이 다른가?
+    - 가정: 데이터가 정규분포를 따른다
+    - 단일 표본 버전: 한 그룹의 평균이 어떤 값과 같은지
+    - 독립 두 표본 버전: 두 그룹의 평균이 같은지
+    - 대응 표본(paired) 버전: 같은 항목에 대한 두 측정값이 체계적으로 다른지
+      - 사실상 단일 표본 t-검정
+      - 예시별 차이(각 차이는 +1, 0, -1)가 주어지면 그 차이가 0과 유의하게 다른지 검정할 수 있다
+  - **ANOVA** (F-검정): (t-검정을 세 그룹 이상으로 일반화) $k$개 그룹 중 평균이 다른 그룹이 있는가?
+  - **McNemar 검정**: 같은 데이터셋에서 두 분류기를 비교한다
+    - 두 모델을 같은 테스트셋으로 평가하고 각 예시를 맞히거나 틀리는 표준적인 설정이라면 아마 이게 가장 좋은 검정이다
+- 이 변수들은 서로 관련이 있는가?
+  - **Pearson 상관 검정**: 두 연속 변수 사이에 선형 관계가 있는지 검정한다
+    - 상관계수 $r$과, $r$이 0과 유의하게 다른지에 대한 p-value를 함께 반환한다
+    - 비선형 관계는 완전히 놓친다(완벽한 포물선 관계 → $r\approx 0$)
+    - 산점도에 직선을 맞추는 모습을 떠올리면 된다
+  - **Spearman 상관 검정**: 같은 아이디어지만 단조(monotonic) 관계를 측정한다
+    - 두 변수를 순위로 바꾼 뒤(가장 작은 값이 1위 등) 순위에 대해 Pearson 상관을 계산한다
+    - 중요한 건 구체적인 값이 아니라 *순서*뿐이다
+  - Pearson 대 Spearman
+    - Pearson은 이상치에 민감하고 Spearman은 이상치에 강건하다
+    - Pearson은 비선형 단조 관계를 과소평가한다
+    - Pearson이 해석이 더 깔끔하다
+  - 상호 정보량(mutual information): 비선형 관계를 포함해 두 변수 사이의 모든 의존성을 포착한다
+    - 엄밀히 말해 통계적 검정은 아니다
+
+## 샘플링을 통한 기울기 흐름 (Gradient flow through sampling)
+
+- **Gumbel-Max 트릭**
+  - logit $z_1,…,z_k$가 있을 때 대응하는 범주형 분포에서 다음과 같이 샘플링할 수 있다
+    1. $\operatorname{Gumbel}(0,1)$ 분포에서 독립적인 노이즈 값 $g_1,…,g_k$를 뽑는다
+    1. $(z_1+g_1,…,z_k+g_k)$에서 argmax를 취한다
+- **Gumbel-Softmax**는 argmax를 softmax로 바꾼다: $\operatorname{softmax}((z_1+g_1,…,z_k+g_k)/\tau)$
+  - softmax는 모든 곳에서 미분 가능하다!
+  - 높은 temperature → 부드러운 기울기(gradient), 낮은 temperature → 이산적인 샘플
+  - 미분 가능하게 만드는 게 목적이 아니라(일반 softmax도 이미 미분 가능) 확률적으로 만드는 것이 목적이다
+  - 일반 softmax: $y = \operatorname{softmax}(\alpha)$
+    - 결정적(항상 같은 soft mixture)
+  - 실제 범주형 샘플링: $y=\operatorname{one\_hot}(\operatorname{sample}(\operatorname{softmax}(\alpha)))$
+  - gumbel-softmax: $y=\operatorname{softmax}((\alpha+G)/\tau)$
+    - 확률적(Gumbel 노이즈)
+    - 근사적으로 이산적(낮은 temperature)
+    - 미분 가능
+    - 탐색(exploration)과 기울기를 둘 다 얻는다!
+- **straight-through estimator**: $f$가 항등 함수였던 것처럼 취급한다
+  - forward: $y=f(x)$ (미분 불가능한 함수를 적용)
+  - backward: $\frac{\partial\mathcal L}{\partial x}=\frac{\partial\mathcal L}{\partial y}$
+    - 상류(upstream) 기울기를 그대로 하류(downstream) 기울기로 넘긴다
+  - $f(x)$가 감소 함수면 틀린다(신호 방향이 반대)
+  - 하지만 STE는 보통 단조 증가 연산(반올림, 양자화, 증가 계단 함수)에 적용한다
+    - 크기는 틀려도 방향은 맞다
+
+## 이론 전산학 (Theoretical CS)
+
+- **정규 언어(regular language)**는 **유한 상태 기계(finite state machine)**(**유한 오토마톤(finite automaton)**이라고도 함)로 인식할 수 있는 언어다
+  - 결정적 유한 오토마톤(deterministic finite automaton, DFA)
+- **문맥 자유 언어(context-free language)**는 푸시다운 오토마톤(pushdown automaton)으로 인식할 수 있는 언어다. 기본적으로 유한 상태 기계에 스택을 더한 것
+  - 스택은 무한한 메모리를 주지만 맨 위로만 접근할 수 있다
+  - 프로그래밍 언어 문법은 문맥 자유 언어로 만들어진다(짝이 맞는 괄호, 중첩된 함수 호출, 균형 잡힌 HTML 태그 등)
+- 유한 언어는 당연히 정규 언어다. 상태만 충분하면 유효한 문자열을 모두 나열할 수 있다
+- 모든 DFA는 ReLU RNN으로 인코딩할 수 있다
+  - 다음과 같은 DFA가 주어졌을 때 
+    - 상태 $Q=\{q_1,…,q_k\}$
+    - 알파벳 $\Sigma=\{\sigma_1,…,\sigma_m\}$
+    - 전이 함수 $\delta:Q\times\Sigma\to Q$
+    - 시작 상태 $q_1$
+    - 수락 상태 $F\subseteq Q$
+  - 상태의 one-hot 인코딩을 hidden으로 쓰는, hidden 차원이 $k$인 RNN을 만든다
+  - $W_h\in\mathbb R^{k\times k}$, $W_x\in\mathbb R^{k\times m}$, $b\in\mathbb R^k$를 구성해야 한다
+  - 각 전이 $\delta(q_i,\sigma_k)=q_j$에 대해 $(W_h)_{ji}=1$, $(W_x)_{jk}=1$, $b_j=-1$로 설정한다
+
+---
+
+# 현대 transformer 언어 모델 (The modern transformer LM)
+
+## 아키텍처 (Architecture)
+
+|**기호**|**차원**|
+|---|---|
+|B|batch 내 시퀀스 수|
+|L|레이어 수|
+|T|시퀀스 길이(생성할 token 수)|
+|S|시퀀스 길이(주어진 context)|
+|V|어휘 크기(vocab size)|
+|D|은닉 차원(hidden dimension)|
+|H|head 차원|
+|F|MLP 은닉 차원, 보통 F = 4D|
+|N|query head 수, N * H = D|
+|K|key/value head 수, GQA에서는 K < N|
+|G|GQA의 그룹 크기 = N // K|
+
+![](img/607f8a7f-b522-488e-be09-5127bbf9e701.png)
+
+**token 임베딩**
+
+- 임베딩 행렬 $\mathbf W_e\in\mathbb R^{V\times D}$, 초기 은닉 상태 $\mathbf X^{(0)}\in\mathbb R^{B\times S\times D}$
+
+$$
+\mathbf X^{(0)}=\mathbf {W}_e[\text{tokens}]
+$$
+
+**레이어 루프 (**$\ell\in[0,…,L-1]$**에 대해)**
+
+- RMSNorm은 $\mathbf X^{(\ell)}$의 모든 원소를 $\mathbf X^{(\ell)}$의 RMS로 나눈 뒤(은닉 상태의 RMS가 1이 되도록) 학습된 재스케일링 파라미터 $\gamma$를 곱한다
+
+  $$
+  \bar{\mathbf X}^{(\ell)}=\frac{\mathbf X^{(\ell)}}{\text{RMS}(\mathbf X^{(\ell)})+\epsilon}\odot\gamma_{\text{attn}}^{(\ell)}\\[1em]
+\operatorname{RMS}(\mathbf X)=\sqrt{\frac 1D\sum_{i=1}^D x_i^2}
+  $$
+
+- 각 head는 $W^{(\ell)}_Q\in\mathbb R^{D\times D}$, $W^K\in\mathbb R^{D\times KH}$, $W^{(\ell)}_V\in\mathbb R^{D\times KH}$(여기서 $H=D/N$)를 써서 $\mathbf {X}^{(\ell)}$를 head 고유의 저차원 부분공간으로 사영한다
+
+  $$
+  \mathbf Q=\bar {\mathbf X}\mathbf W_Q\in\mathbb R^{B\times T\times D},\quad\mathbf K=\bar {\mathbf X}\mathbf W_K\in\mathbb R^{B\times S\times D},\quad\mathbf V=\bar {\mathbf X}\mathbf W_V\in\mathbb R^{B\times S\times D}
+  $$
+
+  - [선택] QK norm: query와 key 벡터에 RMSNorm을 적용해 내적에 들어가는 벡터의 크기를 제어한다
+- head 차원이 드러나도록 $D\to N\times H$, $K\cdot H\to K\times H$로 reshape한 뒤, 시퀀스 길이($S$ 또는 $T$) 차원과 head 차원($N$ 또는 $K$)을 transpose한다
+
+  $$
+  \mathbf Q\in\mathbb R^{B\times T\times D}\to \mathbb R^{B\times N\times T\times H}\\
+\mathbf K\in\mathbb R^{B\times S\times (K\cdot H)}\to \mathbb R^{B\times K\times S\times H}\\
+\mathbf V\in\mathbb R^{B\times S\times (K\cdot H)}\to \mathbb R^{B\times K\times S\times H}
+  $$
+
+- GQA를 위해 $K$, $V$를 확장한다
+
+  $$
+  \mathbf K\in\mathbb R^{B\times K\times S\times H}\to \mathbb R^{B\times N\times S\times H}\\
+\mathbf V\in\mathbb R^{B\times K\times S\times H}\to\mathbb R^{B\times N\times S\times H}
+  $$
+
+- 각 위치 $m$에서 query 벡터 $\mathbf q_m\in\mathbf R^H$(또는 key 벡터 $\mathbf k_m$)를 $\mathbf R_m$으로 회전시켜 RoPE를 적용한다
+  - 차원 쌍 $i$($\mathbf q_m$의 인덱스 $(2i, 2i+1)$에 해당)는 각도 $m\theta_i$만큼 회전한다. 여기서 $\theta_i=\Theta^{-\frac{2i}{H}}$
+  - 하이퍼파라미터 $\Theta$는 기본 회전 주파수를 정하고, $H$는 head 차원이다
+
+    $$
+    \mathbf R_m=\begin{bmatrix}
+\ddots&&\\
+&\mathbf R_m^{(i)}&\\
+&&\ddots\\
+\end{bmatrix}\in\mathbb R^{H\times H}\quad\text{where}\quad \mathbf R_m^{(i)}=\begin{bmatrix}
+\cos(m\theta_i)&-\sin(m\theta_i)\\
+\sin(m\theta_i)&\cos(m\theta_i)\\
+\end{bmatrix}
+    $$
+
+  $$
+  \mathbf q_m\leftarrow \mathbf R_m \mathbf q_m, \quad\mathbf k_m\leftarrow \mathbf R_m \mathbf k_m, 
+  $$
+
+- attention 점수 계산
+  - head 차원 $H$로 나누는 이유: 그러지 않으면 내적 값이 $\sqrt H$에 비례해 커지기 때문
+    - softmax 입력이 크다 → 분포가 뾰족해진다 → 업데이트가 잘 안 된다
+
+    $$
+    \mathbf A=\frac{\mathbf Q\mathbf K^\top}{\sqrt H}\in\mathbb R^{B\times N\times T\times S}
+    $$
+
+  - causal mask 적용
+
+    $$
+    \mathbf A_{ij}\leftarrow \begin{cases} \mathbf A_{ij}&\text{if }j\leq i\\
+-\infty&\text{if }j>i
+\end{cases}
+    $$
+
+  - softmax 적용
+
+    $$
+    \mathbf A=\operatorname{softmax}(\mathbf A)=\frac{\exp(\mathbf A_{ij})}{\sum_{k=1}^S \exp(\mathbf A_{ik})}
+    $$
+
+- value의 가중합으로 attention 출력을 구한다
+
+  $$
+  \mathbf O=\mathbf A\mathbf V\in\mathbb R^{B\times N\times T\times H}
+  $$
+
+- reshape
+
+  $$
+  \mathbf O\in\mathbb R^{B\times N\times T\times H}\to\mathbb R^{B\times T\times D}
+  $$
+
+- 출력 사영 $W^{(\ell)}_O\in\mathbb R^{D\times D}$를 적용해 여러 head의 출력을 섞는다
+
+  $$
+  \mathbf O_\text{proj}=\mathbf O\mathbf W_O
+  $$
+
+- 잔차 연결(residual connection)
+
+  $$
+  \mathbf X^{(\ell)} \leftarrow\mathbf X^{(\ell)}+\mathbf O_\text{proj}
+  $$
+
+**피드포워드 네트워크(feed forward network)**
+
+- RMSNorm
+
+  $$
+  \bar{\mathbf X}^{(\ell)}=\frac{\mathbf X^{(\ell)}}{\text{RMS}(\mathbf X^{(\ell)}) + \epsilon}\odot\gamma_{\text{ffn}}^{(\ell)}
+  $$
+
+- $\mathbf W^{(\ell)}_\text{up}\in\mathbb R^{D\times F}$, $\mathbf W^{(\ell)}_\text{gate}\in\mathbb R^{D\times F}$를 이용한 gate 사영과 up 사영 [확장]
+
+  $$
+  \mathbf U=\bar {\mathbf X}\mathbf W_\text{up}\\
+\mathbf G=\bar {\mathbf X}\mathbf W_\text{gate}
+  $$
+
+- SwiGLU 활성화
+
+  $$
+  \operatorname{Swish}(\mathbf G)=\mathbf G\odot\sigma(\mathbf G)=\mathbf G\odot\frac{1}{1+e^{-\mathbf G}}\\[1em]
+\mathbf H=\operatorname{Swish}(\mathbf G)\odot\mathbf U\in\mathbb R^{B\times T\times F}
+  $$
+
+- $\mathbf W_\text{down}^{(\ell)}\in\mathbb R^{F\times D}$를 이용한 down 사영
+
+  $$
+  \mathbf F=\mathbf H\mathbf W_\text{down}
+  $$
+
+- 잔차 연결
+
+  $$
+  \mathbf X^{(\ell+1)} =\mathbf X^{(\ell)}+\mathbf F
+  $$
+
+**최종 layer norm**
+
+- 최종 norm
+
+  $$
+  \mathbf X_\text{final}=\frac{\mathbf X^{(L)}}{\text{RMS}(\mathbf X^{(L)}) + \epsilon}\odot\gamma_{\text{final}}
+  $$
+
+**언임베딩(unembedding)**
+
+- $\mathbf W_u\in\mathbb R^{D\times V}$로 어휘 차원에 사영한다
+
+  $$
+  \mathbf Z=\mathbf X_\text{final}\mathbf W_u\in\mathbb R^{B\times T\times V}
+  $$
+
+## 구현 메모 (Implementation notes)
+
+- softmax 이전 attention 점수를 만들 때 `scores.masked_fill(~mask, -torch.inf)`
+  - `mask`가 attend *할 수 있는 *위치에서 `True`라는 관례를 가정
+  - `tensor.masked_fill(mask, value)`는 `mask`가 `True`인 곳의 `tensor`를 `value`로 채운다
+- RoPE
+  - 모든 (위치, 인덱스) 쌍 $(m,i)$에 대해 $\cos(m\theta_i)$와 $\sin(m\theta_i)$를 캐시해 두고 싶다
+    - 초기화 시점에 해 둘 수 있다
+
+    ```python
+    positions = torch.arange(max_seq_len, device=device)  # shape (max_seq_len)
+    thetas = self.theta ** (-torch.arange(0, d_k, 2, device=device) / d_k)  # shape (d_k // 2)
+    angles = positions.unsqueeze(-1) * thetas.unsqueeze(0)
+    ```
+
+  - 실제로는 2x2 행렬곱을 잔뜩 하는 대신 회전을 원소별 곱으로 표현한다
+    - 마지막 head 차원 $H$를 $(H/2,2)$로 reshape해 $\mathbf Q$, $\mathbf K$의 짝수·홀수 인덱스를 뽑아낸다
+
+      ```python
+      x_pairs = x.reshape(*x.shape[:-1], -1, 2)
+      x_even = x_pairs[..., 0]
+      x_odd = x_pairs[..., 1]
+      ```
+
+    - 회전된 행렬의 짝수·홀수 위치를 모두 계산한다
+
+      ```python
+      x_out_even = x_even * cos - x_odd * sin
+      x_out_odd = x_even * sin + x_odd * cos
+      ```
+
+    - 그다음 둘을 나란히 쌓고 flatten해서 교차 배치한다
+      - `torch.stack()`은 새 차원을 추가한다
+
+      ```python
+      torch.stack([x_out_even, x_out_odd], dim=-1).flatten(start_dim=-2)
+      ```
+
+- attention은 다음과 같은 형태다
+  - `d_model`($D$)을 `num_heads x head_dim`($N\times H$)으로 펼치려면 `.reshape()`가 필요하다
+  - query, key, vector를 나누려면 `qkv.unbind()`가 필요하다 [구현에 따라 선택]
+  - attention 계산을 위해 `num_heads`와 `seq_len` 차원을 바꾸려면 `.transpose()`가 필요하다
+  - `output`을 얻은 뒤 원래 shape으로 되돌리려면 다시 `.transpose()`와 `.reshape()`가 필요하다
+
+  ```python
+  batch_size, seq_len, _ = x.shape
+  
+  x_norm = self.norm(x)
+  
+  qkv = self.qkv_proj(x_norm)  # (batch, seq_len, 3 * d_model)
+  
+  qkv = qkv.reshape(batch, seq_len, 3, self.num_heads, self.head_dim)
+  q, k, v = qkv.unbind(dim=2)  # (batch, seq_len, num_heads, head_dim)
+  q = q.transpose(1, 2)  # (batch, num_heads, seq_len, head_dim)
+  k = k.transpose(1, 2)  # (batch, num_heads, seq_len, head_dim)
+  v = v.transpose(1, 2)  # (batch, num_heads, seq_len, head_dim)
+  
+  causal_mask = torch.tril(torch.ones(seq_len, seq_len)).bool()
+  output = scaled_dot_product_attention(q, k, v, mask)  # (batch, num_heads, seq_len, head_dim)
+  
+  output = output.transpose(1, 2)  # (batch, seq_len, num_heads, head_dim)
+  output = output.reshape(batch, seq_len, d_model)  # (batch, seq_len, d_model)
+  output = self.out_proj(output)  # (batch, seq_len, d_model)
+  
+  return x + output
+  ```
+
+  - attention 부분은 다음과 같다
+
+    ```python
+    def scaled_dot_product_attention(q, k, v, mask):
+        """
+        k, q: (batch_size, ..., seq_len, d_k)
+        v: (batch_size, ..., seq_len, d_v)
+        returns o (batch_size, ..., seq_len, d_v)
+        """
+        d_k = q.shape[-1]
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(d_k)
+        scores = scores.masked_fill(~mask, -torch.inf)
+        return softmax(scores, dim=-1) @ v
+    ```
+
+## 자원 계산 (Accounting)
+
+### 모델 파라미터 (Model parameters)
+
+- 임베딩: $(V,D)$
+- attention은 $2D^2+2DKH\approx 4D^2$ (표준 multi-head attention처럼 $N=K$일 때)
+  - $Q$는 $(D, D)$
+  - $K$는 $(D,KH)$
+  - $V$는 $(D,KH)$
+  - $O$는 $(D,D)$
+- FFN은 $3DF$
+  - up 사영은 $(D,F)$
+  - gate 사영은 $(D,F)$
+  - down 사영은 $(F,D)$
+- layer norm은 레이어마다 $2D$ (최종 norm 별도)
+  - attention 앞과 FFN 앞의 layernorm이 각각 $D$개 파라미터를 가진다($D$의 각 차원마다 $\gamma$ 하나)
+- 언임베딩: $(V,D)$
+- 합계: $2VD+L(4D^2+2D+3DF)\approx 2VD+12LD^2$ ($F=8D/3$일 때)
+  - 전체 모델 파라미터 수는 $2VD+12LD^2$
+
+### 모델 활성값 (Model activations)
+
+- attention 활성값: $6BSD+BNS^2$
+  - layer norm 입력은 $(B,S,D)$
+  - layer norm 출력은 $(B,S,D)$
+  - Q, K, V 출력은 $(B,S,D)$, $(B,S,KH)$, $(B,S,KH)$
+  - attention 점수는 $(B,N,S, S)$
+  - attention 출력은 $(B,S,D)$
+- FFN 활성값: $2BSD+2BSF\approx 8BSD$ ($F=8/3D$일 때)
+  - layer norm 입력은 $(B,S,D)$
+  - gate/up 사영 출력은 각각 $(B,S,F)$
+  - down 사영 출력은 $(B,S,D)$
+- 레이어당 활성값은 $14BSD+BNS^2$
+
+### 순전파의 FLOPs (FLOPs in forward pass)
+
+- prefill 단계를 가정($S=T$)
+- attention은 레이어당 $8BSD^2+4BS^2D$
+  - $Q$ 사영은 $(B,S,D)\times(D,D)$ → $2BSD^2$ FLOPs
+  - $K$ 사영은 $(B,S,D)\times (D,KH)$ → $2BSDKH\approx 2BSD^2$ ($K=N$일 때)
+  - $V$ 사영은 $(B,S,D)\times (D,KH)$ → $2BSDKH\approx 2BSD^2$ ($K=N$일 때)
+  - $QK^\top$은 $(B,N,S,H)\times(B,N,H,S)$ → $2BNS^2H=2BS^2D$ ($D=NH$이므로)
+  - $AV$는 $(B,N,S,S)\times (B,N,S,H)$ → $2BS^2D$
+  - $O$ 사영은 $(B,S,D)\times(D,D)$ → $2BSD^2$ FLOPs
+- FFN은 레이어당 $6BSDF\approx16BSD^2$ ($F=8D/3$일 때)
+  - up 사영은 $(B,S,D)\times (D,F)$ → $2BSDF$
+  - gate 사영은 $(B,S,D)\times (D,F)$ → $2BSDF$
+  - down 사영은 $(B,S,F)\times (F,D)$ → $2BSDF$
+- 레이어당 합계: $8BSD^2+4BS^2D+16BSD^2=2BSD(12D+2S)$
+- 언임베딩 레이어는 $2BSDV$
+  - 언임베딩은 $(B,S,D)\times (D,V)$ → $2BSDV$
+- 순전파 전체는 $2LBSD(12D+2S)+2BSDV\approx 2BSD(12LD+2LS+V)$
+
+### 역전파의 FLOPs (FLOPs in backward pass)
+
+- 보통 순전파 FLOPs의 2$\times$로 가정한다
+  - 파라미터에 대한 기울기(gradient)와 입력에 대한 기울기를 모두 계산하며, 각각 행렬곱 한 번씩
+    - 입력에 대한 기울기 $\partial L/\partial X$는 이전 레이어로 들어가는 기울기가 된다
+
+### 추론 메모리 사용량 (Inference memory use)
+
+- 추론 시 전체 메모리 사용량: 모델 가중치 + KV cache + 최대 활성값
+  - 모델 파라미터 수: $2VD + 12LD^2$
+
+    ```python
+    num_params = sum(p.numel() for p in model.parameters())
+    ```
+
+  - KV cache 크기: $B\cdot S\cdot (KH)\cdot L\cdot 2$
+    - $B$ = batch 크기
+    - $S$ = 시퀀스 길이
+    - $K$ = KV head 수
+    - $H$ = head 차원
+    - $L$ = 레이어 수
+    - 2는 K와 V
+  - 활성값: prefill에서 $O(BNS^2 + BSF)$, decode에서 $O(BNS+BF)$
+    - `torch.inference_mode()`는 메모리를 즉시 해제하므로 결국 단일 레이어의 최대 메모리만 문제가 된다
+    - 입력은 prefill에서 $B\times S\times D$, decode에서 $B\times T\times D$
+    - FlashAttention을 쓰면 $S\times S$ 행렬을 아예 만들지 않는다 → attention이 대신 $O(S)$가 된다
+    - 최대 활성값
+      - $B\cdot S\cdot D$ = 레이어 입력
+      - $B\cdot S\cdot 3\cdot D$ = K, Q, V 벡터
+      - $B\cdot N \cdot S^2$ = attention 행렬(FlashAttention 미사용 시)
+        - batch의 각 예시와 각 query head마다 $S\times S$ 행렬
+      - $B\cdot S\cdot F$ = FFN 중간값
+    - 활성값은 FA 없이는 시퀀스 길이 $S$에 대해 제곱으로, FA를 쓰면 선형으로 늘어난다
+- batch 크기와 시퀀스 길이가 작으면 가중치가 지배적이다
+- prefill 단계에서는
+  - 시퀀스가 길면(큰 $S$) 활성값 중 $S^2$ attention 항이 지배적이다
+- batch 크기가 크면(큰 $B$) KV cache와 활성값이 모두 커진다
+
+### 학습 메모리 사용량 (Train memory use)
+
+- 학습 시 전체 메모리 사용량: 모델 가중치 + 옵티마이저 상태 + 기울기 + 활성값
+  - $P$개의 모델 파라미터
+    - FP32 마스터 가중치 [full 또는 mixed precision] → $4P$
+    - 순전파용 BF16 임시 사본 [mixed precision] → $2P$
+  - $2P$개의 옵티마이저 상태(1차·2차 모멘트)
+    - FP32 Adam 상태 [mixed precision] → $8P$
+  - $P$개의 기울기
+    - FP32 → $4P$
+      - mixed precision에서도 기울기는 BF16으로 계산하되 FP32로 누적한다
+  - 활성값
+    - 대개 가장 큰 비중을 차지하며 $B$, $S$, $D$, $L$에 따라 달라진다 
+    - 레이어당 $14BSD+BNS^2$개의 활성값(flash attention 미사용 시)
+      - flash attention을 쓰면 두 번째 항이 $BNS$가 되어 활성값 메모리가 $BS$(전체 token 수)에 비례한다
+    - 역전파 중 기울기 계산에 필요하며, gradient checkpointing으로 줄일 수 있다
+
+## Attention
+
+- 표준 attention은 $O(n^2)$
+- KV cache가 시퀀스 길이와 무관해진다
+  - token이 윈도우 밖으로 벗어나면 그냥 버리면 된다
+- **sliding window**: 각 token이 마지막 $W$개 token에만 attend하므로 연산량이 $O(n^2)$ 대신 $O(nW)$
+  - $n$개 token이 각각 $O(W)$ 작업($W$개의 key/value에 attend)
+- **sparse attention**
+- local attention과 global attention을 번갈아 배치
+
+![](img/3363e848-f68e-4681-b6cf-17a625818e5d.png)
+
+## RMSNorm
+
+- 정규화(normalization)는 기울기 폭발/소실을 막아 학습을 안정시킨다
+  - 균일한 스케일링은 제약이 너무 크다: 특성마다 필요한 크기가 다를 수 있다
+  - $\gamma$는 정규화의 안정성과 차원별 크기 변화를 함께 얻게 해 준다
+- $\gamma\in\mathbb R^D$는 학습되는 차원별 재스케일링이다
+  - 정규화 단계가 은닉 상태의 RMS를 1로 강제하므로 학습된 스케일 정보가 모두 사라진다
+- $\gamma$가 네트워크에 특성별 크기 제어권을 돌려준다
+  - $\gamma_i>1$ → 차원 $i$ 증폭
+  - $\gamma_i<1$ → 차원 $i$ 억제
+  - $\gamma_i\approx 0$ → 차원 $i$ 제거
+
+## SwiGLU FFN
+
+- $\mathbf G$와 $\mathbf U$ 모두 내용에 기여한다
+  - $\mathbf U$는 학습된 표현 하나를, $\mathbf G$는 또 다른 표현(자기 확신도로 스스로 gating됨)을 제공한다
+
+## RoPE
+
+- RoPE는 query와 key 벡터만 회전시키고 value는 회전시키지 않는다
+  - 위치 정보는 어떤 token끼리 attend하는지에만 영향을 주면 되고, 어떤 정보가 전달되는지에는 영향을 줄 필요가 없다
+- 위치 $m$의 query 벡터 $\mathbf q$와 위치 $n$의 key 벡터 $\mathbf k$에 대해, 내적 $\mathbf q\cdot\mathbf k$가 *상대* 위치 $m-n$에만 의존하게 하고 싶다
+  - 즉 내적 $\langle f(\mathbf q,m),f(\mathbf k, n)\rangle$이 상대적 형태로만 정보를 담는 함수 $g$가 되도록 하는 $f$를 원한다. 예:
+
+    $$
+    \langle f(\mathbf q,m),f(\mathbf k, n)\rangle=g(\mathbf q,\mathbf k,n-m)
+    $$
+
+  - RoPE 임베딩은 그런 해 중 하나다
+
+    $$
+    f(\mathbf x,m)=R_{m\theta}\mathbf x\\
+g(\mathbf q,\mathbf k,n-m)=\mathbf q^\top R_{(n-m)\theta}\mathbf k
+    $$
+
+    - 증명
+
+      $$
+      \begin{align*}
+\langle R_{m\theta}\mathbf q,R_{n\theta}\mathbf k\rangle&=(R_{m\theta}\mathbf q)^\top R_{n\theta}\mathbf k\\
+&=\mathbf q^\top R_{m\theta}^\top R_{n\theta}\mathbf k\\
+&=\mathbf q^\top R_{-m\theta}R_{n\theta}\mathbf k
+&\text{because }R_\alpha^\top=R_{-\alpha}\\
+&=\mathbf q^\top R_{(n-m)\theta}\mathbf k&\text{because } R_\alpha R_\beta=R_{\alpha+\beta}
+\end{align*}
+      $$
+
+- 거리가 멀어질수록 내적이 감쇠한다
+- 2차원 벡터 $\mathbf x=[x_1,x_2]$를 각도 $\theta$만큼 회전하는 것은 다음과 같다
+
+  $$
+  R_\theta=\begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmatrix}
+  $$
+
+  - 위치 $m$, head 차원 인덱스 $i$에 대해 $m\theta_i$만큼 회전한다
+
+    $$
+    R_{m\theta}\mathbf x=\begin{bmatrix}
+x_1\cos(m\theta_i)-x_2\sin(m\theta_i)\\
+x_2\sin(m\theta_i)+x_2\cos(m\theta_i)\\
+\end{bmatrix}
+    $$
+
+- $H$차원 임베딩은 $H/2$개 쌍으로 나누고, 각 쌍에 서로 다른 주파수로 독립적인 회전을 적용한다
+  - $\Theta$는 RoPE의 유일한 하이퍼파라미터로 보통 10,000이다(HF에서는 `rotary_base`라고 부른다)
+    - 모델이 기본적으로 구분할 수 있는 최장 거리를 정한다
+    - $m\theta_i=2\pi$일 때 한 바퀴 회전이 끝난다 ⇒ $m=\frac{d\pi}{\theta_i}$
+      - 가장 느린(가장 작은) $\theta_i$는 $\Theta^{-1}$ → $m=d\pi\Theta$
+      - 따라서 가장 느린 쌍은 $2\pi\Theta$개 위치에 걸쳐 한 바퀴를 돈다
+  - 각 차원 쌍 $i$에 대해 $\theta_i$는
+
+    $$
+    \theta_i=\Theta^{-2i/H}
+    $$
+
+    - 지수적 간격을 준다(원조 transformer의 sinusoidal 위치 인코딩과 같은 설계 선택)
+      - 주파수가 로그 균등하게 퍼진다 → 여러 스케일을 효과적으로 커버한다
+    - 저주파 쌍(큰 $i$ → 작은 $\theta_i$)은 천천히 회전한다 → 인접 위치 간 변화가 거의 없다 → 장거리 정보를 인코딩한다
+    - 고주파 쌍(작은 $i$ → 큰 $\theta_i$)은 빠르게 회전한다 → 인접 위치 간 차이가 크다 → 국소적 구분을 가능하게 한다
+- (한 위치에 대한) 전체 회전 행렬은 블록 대각 행렬이며, 각 $2\times 2$ 블록이 차원 쌍 하나를 담당한다
+
+  $$
+  \mathbf R_m=\begin{bmatrix}
+\ddots&&\\
+&\mathbf R_m^{(i)}&\\
+&&\ddots\\
+\end{bmatrix}
+  $$
+
+- 복소수로 다시 쓸 수 있다
+  - 각 쌍 $[x_{2i},x_{2i+1}]$를 복소수 $z=x_{2i}+ix_{2i+1}$로 본다
+  - 각도 $\theta$만큼의 회전은 $e^{i\theta}$를 곱하는 것과 같다
+    - 오일러 정리: $e^{i\theta}=\cos\theta+i\sin\theta$
+
+      $$
+      \begin{align*}
+z e^{i\theta}&=(a+bi)(\cos\theta+i\sin\theta)&\text{Euler's Theorem}\\
+&=(a\cos\theta-b\sin\theta)+i(a\sin\theta+b\cos\theta)
+\end{align*}
+      $$
+
+    - 이는 복소평면에서 회전 행렬을 적용하는 것과 같다
+
+      $$
+      \begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmatrix}\begin{bmatrix}a\\b\end{bmatrix}
+      $$
+
+- 실제로는 전체 회전 행렬을 만드는 대신 원소별 곱셈을 한다
+
+  $$
+  \begin{bmatrix} x_1\\x_2\end{bmatrix}\odot
+\begin{bmatrix}
+\cos(m\theta)\\
+\cos(m\theta)
+\end{bmatrix}+\begin{bmatrix} -x_2\\x_1\end{bmatrix}\odot
+\begin{bmatrix}\sin(m\theta)\\\sin(m\theta)\end{bmatrix}
+  $$
+
+---
+
+# 추론 (Inference)
+
+- **지연 시간(latency)**** **은 단일 요청 하나를 완료하는 데 걸리는 시간으로, 초 단위로 잰다
+- **처리량(throughput)**** **은 전체 요청에 걸쳐 단위 시간당 처리할 수 있는 token(또는 요청) 수로, tokens/second 단위로 잰다
+
+## Batching과 packing (Batching & packing)
+
+- **전통적 batching**: $N$개 요청을 모아 함께 처리하고, 모두 끝날 때까지 기다린 뒤 다음 batch를 모은다
+  - 한 시퀀스는 token 500개를, 다른 시퀀스는 10개를 생성한다면 짧은 쪽은 놀면서 기다린다
+- **continuous batching**: 한 시퀀스가 끝나는 즉시 전체 batch를 기다리지 않고 그 자리에 새 요청을 끼워 넣는다
+  - batch가 항상 꽉 차 있다
+- **selective batching**: prefill 단계와 생성 단계에 있는 시퀀스를 영리하게 섞는다
+  - 아이디어: prefill은 연산 집약적(compute-heavy)이고 decode는 메모리 병목(memory-bound)이다
+- **sequence packing**: 예제들을 최대 시퀀스 길이까지 이어 붙이고, attention mask로 예제 간 교차 오염을 막는다
+- **token-budget batching**: batch 내 총 token 수(그 batch 안의 최대 seqlen에 맞춰 padding한 뒤 기준)가 정해진 예산을 넘지 않도록 예제를 batch로 묶는다
+  - 주로 파인튜닝(finetuning)에서 쓴다
+  - GPU 메모리가 `batch_size x sequence_length`로 결정되므로 합리적인 방식이다
+
+## 추측 디코딩 (Speculative decoding)
+
+- **추측 디코딩(speculative decoding)**은 prefill이 생성보다 빠르다는 점을 활용한다
+- draft 모델 $q$에서 $K$개 token을 생성한다
+- 그 token들을 target 모델 $p$로 평가한다
+  - 각 draft token $x$를 다음 확률로 수락한다
+
+    $$
+    \min\left(1,\frac{p(x)}{q(x)}\right)
+    $$
+
+    - $p(x)>q(x)$이면 무조건 받아들인다
+  - 거절되면 재정규화한 조정 분포 $\max(0, p(x)-q(x))$에서 샘플링한다
+    - 처음 거절된 token부터 시작한다
+  - draft token을 채점할 때 다음 token logit을 "공짜로" 얻으므로, token 하나는 항상 teacher에서 샘플링된다
+- P(token $x$ 출력) = P(draft $x$) * P(accept $x$) + P(샘플된 token 거절) * P(sample $x$)
+  - 경우 1(첫째 항): $x$가 draft에서 수락됨
+
+    $$
+    q(x)\cdot\min\left(1,\frac{p(x)}{q(x)}\right)=\min(q(x),p(x))
+    $$
+
+  - 경우 2(둘째 항): 거절 후 $x$가 선택됨
+    - draft token $x'$를 뽑고 거절할 확률:
+      - $p(x')>q(x')$이면 0
+      - 그 외에는
+
+        $$
+        q(x')\cdot\left(1-\frac{p(x')}{q(x')}\right)=q(x')-p(x')
+        $$
+
+    - 따라서 전체 거절 확률은
+
+      $$
+      \begin{align*}
+P(\text{rejection})&=\sum_{x'}\max(0,q(x')-p(x'))\\
+&=\sum_{x'}\max(0,p(x')-q(x'))
+\end{align*}
+      $$
+
+      - 두 번째 단계는 $p$와 $q$의 합이 모두 1이기 때문에 성립한다
+    - 거절하면 다음 분포에서 샘플링한다
+
+      $$
+      \frac{\max(0,p(x)-q(x))}{\sum_{x'}\max(0,p(x')-q(x'))}
+      $$
+
+    - 따라서 거절 후 $x$를 얻을 확률은
+
+      $$
+      \sum_{x'}\max(0,p(x')-q(x'))\cdot \frac{\max(0,p(x)-q(x))}{\sum_{x'}\max(0,p(x')-q(x'))}=\max(0,p(x)-q(x))
+      $$
+
+  - 두 경우를 합치면
+
+    $$
+    \min(q(x),p(x))+\max(0,p(x)-q(x))=p(x)
+    $$
+
+## KV cache
+
+- cache를 쓰는 단일 token forward pass
+  - cache 차원은 `(batch, num_heads, max_seq_len, head_dim)`이어야 한다
+  - 실제로는 self attention 모듈 안에 `self.kv_cache`로 cache를 저장한다
+
+  ```python
+  # max_seq_len 기준으로 cache를 미리 할당
+  kv_cache = [
+      {
+          'k': torch.zeros(batch, num_heads, max_seq_len, head_dim, device='cuda', dtype=torch.float16),
+          'v': torch.zeros(batch, num_heads, max_seq_len, head_dim, device='cuda', dtype=torch.float16),
+      }
+      for _ in range(num_layers)
+  ]
+  
+  # attention에는 cache[:, :, :position+1, :]를 key/value로 사용
+  
+  def forward_with_cache(model, new_token, kv_cache, position):
+      """
+      Instead of processing full sequence, process just the new token
+      and reuse cached K, V from previous positions.
+      """
+      # 새 token만 임베딩
+      x = model.embed(new_token)  # (batch, 1, d_model)
+      
+      for layer_idx, layer in enumerate(model.layers):
+          q, k, v = layer.qkv_proj(x).chunk(3, dim=-1)
+          
+          # cache 갱신
+          kv_cache[layer_idx]['k'][:, :, position, :] = k.squeeze(2)
+          kv_cache[layer_idx]['v'][:, :, position, :] = v.squeeze(2)
+          
+          # cache된 모든 위치에 대해 attention 수행
+          k_full = kv_cache[layer_idx]['k'][:, :, :position+1, :]
+          v_full = kv_cache[layer_idx]['v'][:, :, :position+1, :]
+          
+          x = attention(q, k_full, v_full)
+          x = layer.ffn(x)
+      
+      return model.lm_head(x)
+  ```
+
+### KV cache 크기 줄이기 (Reducing KV cache size)
+
+**KV cache 차원 낮추기**
+
+- 표준 **multi-head attention**(MHA) transformer attention에서 KV cache는 `num_layers × num_heads × seq_len × head_dim × 2 (K and V)`에 비례한다
+- **multi-query attention**(MQA)에서는 모든 head가 같은 K와 V를 공유하고, Q만 head마다 따로 가진다
+  - KV cache가 `num_heads`배만큼 줄어든다
+  - 추론이 훨씬 빠르고 메모리 효율적이다
+- **group-query attention**(GQA)에서는 head를 그룹으로 나누고, 각 그룹이 K와 V를 공유한다
+  - MHA와 MQA의 중간 지점
+- MQA와 GQA는 head 간에 KV를 공유하므로 head별 표현력이 일부 줄어든다
+- **multi-head latent attention**(MLA)은 DeepSeek v2에서 도입됐다
+  - KV cache에 `(seq_len, num_heads × head_dim)` 형태의 key와 value를 두는 대신, 더 작은 latent 벡터 `(seq_len, latent_dim)`을 cache한다
+  - 그다음 각 디코딩 단계마다 latent KV를 원래 크기로 다시 projection한다
+- MLA는 head별 KV를 따로 유지하되 공유 latent 공간으로 압축한다
+  - 추론 시 추가 연산이 약간 생긴다(latent에서 KV로의 projection)
+  - MLA는 RoPE와 호환되지 않는다
+
+![](img/848b0723-16cc-4ca4-a40c-b916c9502636.png)
+
+- **cross-layer attention**은 layer 간에 KV를 공유한다
+
+**local attention**
+
+- 표준 attention은 $O(n^2)$인데, local attention을 쓰면 KV cache가 시퀀스 길이와 무관해진다
+  - token이 window 밖으로 벗어나면 그냥 버리면 된다
+
+## 샘플링 전략 (Sampling strategies)
+
+```python
+def sample(logits, temperature=1.0, top_k=None, top_p=None):
+    logits = logits / temperature
+    
+    if top_k is not None:
+        values, indices = torch.topk(logits, top_k)
+        logits = torch.full_like(logits, float('-inf'))
+        logits.scatter_(-1, indices, values)
+    
+    if top_p is not None:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        
+        # 누적 확률이 임계값을 넘는 token 제거
+        sorted_mask = cumulative_probs > top_p
+        sorted_mask[..., 1:] = sorted_mask[..., :-1].clone()
+        sorted_mask[..., 0] = False
+        
+        indices_to_remove = sorted_mask.scatter(-1, sorted_indices, sorted_mask)
+        logits = logits.masked_fill(indices_to_remove, float('-inf'))
+    
+    probs = F.softmax(logits, dim=-1)
+    return torch.multinomial(probs, num_samples=1)
+```
+
+## Flash Attention
+
+- 표준 attention
+  - 메모리 문제는 `attn_weights`가 `(batch, num_heads, seq_len, seq_len)` 크기라는 점이다
+    - `seq_len` = 8192, head 32개, FP16이면 8192² × 32 × 2 bytes ≈ 4GB
+
+  ```python
+  import torch
+  import torch.nn.functional as F
+  import math
+  
+  def standard_attention(q, k, v):
+      # q, k, v 모두 (batch, num_heads, seq_len, head_dim)
+      
+      scale = math.sqrt(q.size(-1))
+      
+      # N×N attention 행렬 전체를 메모리에 실체화
+      attn_weights = torch.matmul(q, k.transpose(-2, -1)) / scale  # (batch, num_heads, seq_len, seq_len)
+      attn_weights = F.softmax(attn_weights, dim=-1)
+      
+      output = torch.matmul(attn_weights, v)  # (batch, num_heads, seq_len, head_dim)
+      return output
+  ```
+
+  - 표준 attention이 메모리 병목인 이유: $N\times N$ attention 행렬을 HBM에 쓰고, (softmax 계산을 위해) 다시 읽고, 또 쓰고, (실제로 쓰기 위해) 또 읽는다
+- **flash attention**은 online softmax 기법으로 attention을 블록 단위로 계산하며, 전체 attention 행렬을 GPU 주 메모리에 쓰지 않고 중간 결과를 빠른 SRAM에 둔다
+  - attention의 activation 메모리를 $O(n^2)$에서 $O(n)$으로 줄인다
+  - 메모리 대역폭이 병목이 아니게 되어 더 빠르다
+  - 추론 시 `model.to_bettertransformer()` 또는 `from_pretrained()`에 `attn_implementation="flash_attention_2"`를 넘겨 켠다
+
+  ```python
+  def flash_attention(q, k, v):
+      # 입력 shape 동일: (batch, num_heads, seq_len, head_dim)
+      
+      # PyTorch가 최적 backend를 자동 선택 (Flash Attention, memory-efficient, 또는 math)
+      output = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+      return output
+  ```
+
+- FlashAttention은 $N\times N$ 행렬 전체를 실체화하지 않고, SRAM에 들어갈 만큼 작은 tile 단위로 attention을 계산한다
+- 개념적으로는
+  1. $Q$의 블록 하나를 불러온다(예: 64행)
+  1. K와 V의 블록 하나를 불러온다(예: 64열)
+  1. 해당 tile의 attention score를 계산하고 softmax를 적용한 뒤 V를 곱한다 — 모두 SRAM 안에서
+  1. 최종 출력만 HBM에 쓴다
+  1. 모든 tile에 대해 반복한다
+- 모든 (batch, head) 조합이 완전히 독립적이므로, `batch × num_heads`개의 병렬 worker가 Q, K, V의 각 `m  × head_dim` tile을 처리한다(`m`은 tile 크기)
+- *Flash Attention은 근사가 아닌 정확한(exact) 방법이다*
+- Flash Attention 사용법
+  - `is_causal=True` 플래그는 mask 행렬을 실체화하지 않고 kernel 안에 효율적으로 융합된다
+
+  ```python
+  def flash_attention(q, k, v):
+      # 입력 shape 동일: (batch, num_heads, seq_len, head_dim)
+      
+      # PyTorch가 최적 backend를 자동 선택 (Flash Attention, memory-efficient, 또는 math)
+      output = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+      return output
+  ```
+
+---
+
+# 스케일링 법칙 (Scaling laws)
+
+- maximal update parameterization ($\mu P$)
+  - 핵심 문제: 작은 규모에서 찾은 하이퍼파라미터가 큰 규모로 일반화되지 않는다
+  - 표준 parameterization → 너비가 바뀌면 층마다 업데이트 크기가 들쭉날쭉해진다
+  - $\mu P$는 층별로 초기화와 학습률을 조정해서 가중치 대비 업데이트의 *크기 *가 너비와 무관하게 일정하도록 한다
+  - 주로 너비 스케일링을 조정한다
+- 학습률을 compute에 맞춰 fitting
+
+  $$
+  \text{LR}(C)=\beta C^{-\alpha}\implies\log\text{LR}(C)=\log\beta-\alpha\log C
+  $$
+
+- 손실을 compute에 맞춰 fitting
+  - 줄일 수 없는 손실 항 $\mathcal L_\infty$(데이터의 엔트로피)가 필요하다. 없으면 $C\to\infty$일 때 $\mathcal L\to 0$이 되기 때문이다
+
+  $$
+  \mathcal L(C)=\mathcal L_\infty+\beta C^{-\alpha}\implies \log(\mathcal L(C)-\mathcal L_\infty)=\log\beta-\alpha\log C
+  $$
+
+- 식은 어떻게 fitting하나? 최소제곱법(least squares)을 쓴다
+  - 최소제곱법은 잔차 제곱합을 최소화하는 목적 함수다
+    - 보통(선형) 최소제곱법과 비선형 최소제곱법이 있다
+  - 선형 최소제곱법은 닫힌 형태의 해가 있다
+    - $y=X\beta$에 대한 닫힌 형태의 해는 $\beta=(X^\top X)^{-1}X^\top y$
+  - 비선형 최소제곱법은 반복적 개선(iterative refinement)으로 푼다
+
+    $$
+    S=\sum_i(y_i-f(x_i))^2
+    $$
+
+---
+
+# GPU (GPUs)
+
+- **high bandwidth memory** (HBM)는 GPU의 주 메모리다
+  - GPU 입장에서는 느린 메모리
+  - A100 기준 40GB 또는 80GB
+- **static RAM** (SRAM)은 작고 빠른 온칩(on-chip) 메모리다
+  - A100 기준 전체 ~20MB
+
+---
+
+# 기타 아키텍처 (Other architectures)
+
+## RNN (RNNs)
+
+### 기본 RNN (Vanilla RNN)
+
+![](img/fd70a556-ee21-49a5-b136-f8eb4564bdf1.png).png)
+
+- 각 step $t$에서 $x\in\mathbb R^D$와 이전 hidden state $h_{t-1}\in\mathbb R^H$를 처리해 다음 hidden state $h_t$를 만든다($D$는 입력 크기, $H$는 hidden 크기)continuous
+  - 가중치 행렬 $W_x\in\mathbb R^{H\times D}$, $W_h\in\mathbb R^{H\times H}$
+
+  $$
+  h_t=\tanh(W_{x}x_t+W_{h}h_{t-1}+b)\\
+y_t=W_\text{out} h_t+b_\text{out}
+  $$
+
+  - 가중치는 모든 time step에서 공유된다
+- 기울기 소실(vanishing gradient)의 원인
+  - $z_t=W_xx_t+W_hh_{t-1}+b$라 하자
+
+  $$
+  \frac{\partial h_t}{\partial h_{t-1}}=\operatorname{diag}(\tanh'(z_t)) W_h
+  $$
+
+  - $\tanh^\prime\in(0,1]$이므로 $\tanh^\prime$은 값을 줄이기만 한다
+  - $W$를 반복해서 곱하면 기울기가 소실되거나 폭주한다
+
+### LSTM
+
+- LSTM은 forget, input, output gate와 함께 cell state $c_t$를 쓴다
+  - 각 step의 입력: 이전 hidden state $h_{t-1}$, 이전 cell state $c_{t-1}$, 현재 입력 $x_t$
+  - **forget gate**: cell state에서 무엇을 지울지
+
+  $$
+  f_t=\sigma(W_f\cdot [h_{t-1}, x_t]+b_f)
+  $$
+
+  - **input gate**: 어떤 새 정보를 쓸지
+
+    $$
+    i_t=\sigma(W_i\cdot[h_{t-1},x_t]+b_i)
+    $$
+
+  - cell state
+
+    $$
+    \tilde c_t=\tanh(W_c\cdot[h_{t-1},x_t]+b_c)
+    $$
+
+  - cell state 업데이트: 이전 cell state $c_{t-1}$에서 일부 정보를 잊고, 새 cell state $\tilde c_t$에서 일부 정보를 더한다
+
+    $$
+    c_t=f_t\odot c_{t-1}+i_t\odot\tilde c_t
+    $$
+
+  - **output gate**: 새 hidden state로 무엇을 내보낼지
+
+    $$
+    o_t=\sigma(W_o\cdot[h_{t-1},x_t]+b_o)
+    $$
+
+  - 새 hidden state
+
+    $$
+    h_t=o_t\odot\tanh(c_t)
+    $$
+
+- $f_t$가 1 근처에 머무는 한 기울기는 소실되지 않고 여러 timestep을 거슬러 전달될 수 있다
+- cell state는 메모리, hidden state는 작업용 출력이다
+  - 고속도로를 따라 흐르며 elementwise 곱셈과 덧셈만 거치고, 행렬곱이나 비선형 함수는 거치지 않는다
+  - 정보는 gate를 통해서만 추가되거나 제거된다
+- hidden state $h_t=o_t\cdot \tanh(c_t)$는 cell state를 걸러서 본 것이다
+  - 두 가지 역할을 한다
+    - 바깥으로 내보내는 cell의 출력
+    - 다음 step에서 cell이 자기 자신에게 던지는 query. $t+1$의 gate는 $c_t$가 아니라 $h_t$로 계산되기 때문
+- cell state와 hidden state의 분리가 LSTM이 작동하는 이유다
+  - RNN은 벡터 하나로 장기 메모리와 현재 출력을 동시에 맡기려 한다
+- GRU는 reset과 update 두 gate만 쓰는 단순화 버전이다
+
+### transformer와 비교 (vs. transformers)
+
+- *먼 *time step의 기울기가 *이전* time step의 처리에 영향을 주지 못한다
+- RNN 대 transformer
+  - attention은 두 token 사이에 직접적인 / $O(1)$ 경로를 주며, token 간 거리와 무관하다
+    - 각 token이 다른 모든 token을 직접 본다
+    - 반면 RNN에서는 token 1의 정보가 token 100에 닿으려면 중간의 모든 hidden state를 거치며 살아남아야 한다
+    - 장거리 의존성에 도움이 된다
+  - attention은 모든 쌍별 관계를 한 번에 계산한다
+
+## 상태 공간 모델 (State space models)
+
+- SSM의 기반이 되는 식
+  - $u_k$는 1차원 입력 신호
+  - $x_k$는 $N$차원 잠재 상태
+
+  $$
+  x_k=A x_{k-1}+B u_k
+  $$
+
+- SSM은 학습 때는 $O(n)$이면서 병렬이고, 추론 때는 $O(1)$이면서 순차적이다
+  - 반면 transformer는 병렬이지만 attention이 $O(n^2)$이고, RNN은 $O(n)$이지만 순차적이다
+- Mamba는 $B$, $C$, $\Delta$를 입력의 함수로 만든다
+
+  $$
+  B_k=f_B(u_k)\\
+C_k=f_C(u_k)\\
+\Delta_k=f_\Delta(u_k)
+  $$
+
+  - $B$로 정보를 선택적으로 받아들인다
+  - $C$로 상태에서 선택적으로 읽는다
+  - $\Delta$로 시간 척도를 조절한다
+
+---
+
+# 사후 학습 (Post-training)
+
+## 정책 기울기 (Policy gradients)
+
+- 표기법
+  - 행동(action) $a_t\in\mathcal V$: 시점 $t$의 다음 token
+  - 상태(state) $s_t$: 시점 $t$의 텍스트 접두사 $(s_0,a_0,…,a_{t-1})$
+  - $a_t\sim\pi_\theta(\cdot\mid s_t)$: LM 정책(policy)
+  - $s_0\sim p_0$: 프롬프트에 대한 시작 분포에서 샘플링한 프롬프트 $s_0$
+  - $\tau$: 궤적(trajectory, 유한 길이). rollout, episode라고도 부름
+  - $R(\tau)$: 궤적 $\tau$에서 얻는 보상(reward)
+- 목표
+
+  $$
+  \text{maximize }J(\theta)=\mathbb E_{\tau\sim\pi_\theta} [R(\tau)]
+  $$
+
+- 경사 상승법(gradient ascent)으로 풀 수 있다
+
+  $$
+  \theta_{k+1}=\theta_k+\alpha\nabla_\theta J(\theta_k)
+  $$
+
+- **바닐라 정책 기울기(vanilla policy gradient)** (일명 **REINFORCE**): 목적 함수의 기울기(gradient)는 다음과 같이 쓸 수 있다
+
+  $$
+  \nabla_\theta J(\theta)=\mathbb E_{\tau\sim\pi_\theta}\left[\sum_t\nabla_\theta\log\pi_\theta(a_t\mid s_t) R(\tau)\right]
+  $$
+
+  - 사실상 SFT와 같은 업데이트지만, 데이터 $\tau$를 정책에서 샘플링하고 기울기에 $R(\tau)$로 가중치를 준다는 점이 다르다
+    - $R(\tau)$가 양수면 $\tau$ 안의 각 token $a_t$에 대해 $\log\pi_\theta(a_t\mid s_t)$가 커지는 방향으로 이동한다
+      - 음수면 반대 방향으로 이동한다
+    - $R(\tau)$의 크기가 클수록 더 큰 step을 밟는다
+  - 기울기 유도
+
+    $$
+    \begin{align*}
+\nabla_\theta J(\theta)&=\nabla_\theta\mathbb E_{\tau\sim\pi_\theta} [R(\tau)]\\
+&=\nabla_\theta\sum_\tau P(\tau\mid\theta)\,R(\tau)\\
+&=\sum_\tau\nabla_\theta P(\tau\mid\theta)\,R(\tau)\\
+&=\sum_\tau P(\tau\mid\theta)\nabla_\theta\log P(\tau\mid\theta)\,R(\tau)&\text{the log derivative trick: }\nabla P=P\,\nabla \log P\\
+&=\mathbb E_{\tau\sim\pi_\theta}\nabla_\theta\log P(\tau\mid\theta)\,R(\tau)\\
+&=\mathbb E_{\tau\sim\pi_\theta}\sum_t\nabla_\theta\log\pi_\theta(a_t\mid s_t)\, R(\tau)
+\end{align*}
+    $$
+
+- 실제로는 시작 상태 $s_0^{(i)}\sim p_0$에서 출발해 정책 $\pi_\theta$로 $N$개의 rollout $\tau^{(i)}$를 batch로 샘플링하여 $\nabla_\theta J(\theta)$를 추정한다
+
+  $$
+  \hat g=\frac 1N\sum_{i=1}^N\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_t^{(i)}\mid s_t^{(i)})(R(\tau^{(i)}))
+  $$
+
+- 이른바 정책 기울기 손실(policy gradient loss)은 `pg_loss.backward()`를 호출하면 근사 정책 기울기 $\hat g$와 같은 기울기가 나오도록 만든 스칼라 `pg_loss`일 뿐이다
+
+  $$
+  L(\theta)=\frac 1N\sum_{i=1}^N\sum_{t=1}^T\log\pi_\theta(a_t^{(i)}\mid s_t^{(i)})(R(\tau^{(i)}))
+  $$
+
+  - 일반적인 의미의 손실이 아니다: $L(\theta)$는 정책이 얼마나 좋은지 알려주지 않으며, 올바른 기울기를 만들어내기 위한 장치일 뿐이다
+  - 현재 정책으로 샘플링한 데이터로 구성되므로 고정된 목적 함수가 없다
+
+**베이스라인 정책 기울기(baselined policy gradient)**
+
+- 바닐라 정책 기울기의 문제는 분산이 매우 큰 추정량이라는 점이다
+  - 쉬운 프롬프트라서 모든 응답이 양의 보상을 받는다고 하자
+    - 베이스라인이 없으면 batch 안의 나쁜 응답까지 포함해 모든 응답이 강화된다!
+      - 학습 전체에 걸쳐 평균을 내면 괜찮지만, 업데이트에 노이즈가 매우 많아진다
+    - (예를 들어) *평균* 보상을 베이스라인으로 쓰면 평균보다 못한 응답은 강화되지 않는다
+- **베이스라인 정책 기울기**: 기울기 추정식에서 $R(\tau)$에서 베이스라인 함수 $b(s_t)$를 뺀다
+
+  $$
+  \nabla_\theta J(\theta)=\mathbb E_{\tau\sim\pi_\theta}\left[\sum_{t=0}^T\nabla_\theta\log\pi_\theta(a_t\mid s_t) (R(\tau)-b(s_t))\right]
+  $$
+
+  - $b(s_t)$가 상태 $s_t$만의* *함수이고 $a_t$에 의존하지 않는 한, $\nabla J(\theta)$ 추정에 편향(bias)을 만들지 않는다
+  - $b(s_t)$가 $R(\tau)$와 상관관계가 있어서 $R(\tau)-b(s_t)$가 작아지기를 원한다 → 노이즈가 적은 기울기
+  - 최적화하는 목적 함수는 바뀌지 않고, 그 기울기를 추정하는 방식만 바뀐다
+- 베이스라인 정책 기울기가 정책 기울기의 비편향(unbiased) 추정량인 이유는?
+  - 베이스라인 항 $B$의 기댓값이 0임을 보인다
+
+  $$
+  B=\mathbb E_{\tau\sim\pi_\theta}\left[\sum_{t=0}^T\nabla_\theta\log\pi_\theta(a_t\mid s_t)b(s_t)\right]
+  $$
+
+  - $X_t=\nabla_\theta\log\pi_\theta(a_t\mid s_t)b(s_t)$로 두고 다시 쓰면
+
+    $$
+    B=\mathbb E_{\tau\sim\pi_\theta}\sum_{t=0}^T X_t
+    $$
+
+  - 먼저 기댓값을 합 안으로 옮긴다
+
+    $$
+    B=\sum_{t=0}^T\mathbb E_{\tau\sim\pi_\theta} X_t
+    $$
+
+    - 이전: 궤적마다 시점 $t$에 걸쳐 $X_t$를 합한 뒤, 샘플링된 궤적들에 대해 평균
+    - 이후: 시점 $t$마다 샘플링된 궤적들에 대해 $X_t$를 평균한 뒤, 그 평균들을 합함
+  - $X_t$는 $(s_t,a_t)$에만 의존하므로(궤적의 나머지는 $X_t$에 영향이 없음), 전체 궤적에 대해 $X_t$를 평균하는 것은 $(s_t,a_t)$에 대해서만 $X_t$를 평균하는 것과 같다
+    - 그다음 $(s_t,a_t)$에 대한 결합 기댓값을, $s_t$에 대한 기댓값 안에 $s_t$가 주어졌을 때 $a_t$에 대한 기댓값이 들어간 형태로 분해한다
+
+    $$
+    B=\sum_{t=0}^T\mathbb E_{s_t,a_t} X_t=\sum_{t=0}^T\mathbb E_{s_t}\left[\mathbb E_{a_t\mid s_t} X_t\right]
+    $$
+
+  - 이제 $X_t$의 정의를 대입한다
+
+    $$
+    \begin{align*}
+\mathbb E_{a_t\mid s_t} X_t&=\mathbb E_{a_t\mid s_t}\nabla_\theta\log\pi_\theta (a_t\mid s_t)\,b(s_t)\\
+&= b(s_t)\,\mathbb E_{a_t\mid s_t}\nabla_\theta\log\pi_\theta (a_t\mid s_t)&\text{because }b\text{ doesn't depend on }a_t\text{!}\\
+&= b(s_t)\,\sum_{a_t}\pi_\theta(a_t\mid s_t)\nabla_\theta\log\pi_\theta(a_t\mid s_t)\\
+&= b(s_t)\,\sum_{a_t}\nabla_\theta\pi_\theta(a_t\mid s_t)&\text{the log derivative trick again}\\
+&=b(s_t)\nabla_\theta\sum_{a_t}\pi_\theta(a_t\mid s_t)\\
+&= b(s_t)\nabla_\theta 1&\text{sum of probabilities of all actions is 1}\\
+&= b(s_t)\cdot 0\\
+&= 0
+\end{align*}
+    $$
+
+    - $b(s_t)$를 $a_t\mid s_t$에 대한 기댓값 밖으로 꺼낼 수 있는 것은 $b$가 $s_t$에만 의존하기 때문이며, 덕분에 $\sum_a\pi(a\mid s_t)=0$이라는 사실을 쓸 수 있다
+  - 이를 다시 대입하면
+
+    $$
+    B=\sum_{t=0}^T\mathbb E_{s_t}[0]=0
+    $$
+
+- 베이스라인 함수로 아주 흔히 쓰는 것(PPO에서 사용)은 부분 시퀀스 $s_t$가 주어졌을 때의 *기대* 보상을 추정하는 $V_\psi(s_t)$다
+
+  $$
+  \nabla_\theta J(\theta)=\mathbb E_{\tau\sim\pi_\theta}\left[\sum_{t=0}^T\nabla_\theta\log\pi_\theta(a_t\mid s_t) (R(\tau)-V_\psi(s_t))\right]
+  $$
+
+  - $V_\psi$는 상태에만 의존하므로 비편향이다
+  - 각 token이 받는 신호: 최종 보상이 생성의 이 시점에서 예상되던 수준을 넘었는가, 못 미쳤는가?
+    - 나빠 보이던 응답(작은 $V_\psi(s_t)$)을 좋은 응답(큰 $R(\tau)$)으로 바꾼 token이 더 큰 공(credit)을 인정받는다
+  - 어드밴티지(advantage)와의 연결
+    - $R(\tau)$는 **Q 함수(Q function)** $Q^\pi(s_t,a_t)$(이 상태와 행동이 주어졌을 때 정책 $\pi$를 따를 경우의 기대 보상)의 단일 샘플이다
+    - $V_\psi(s_t)$는 **가치 함수(value function)** $V^\pi(s_t)$(이 상태만 주어졌을 때의 기대 보상, $V^\pi(s)=\sum_{a\sim\pi(\cdot\mid s)}Q^\pi(s,a)$)의 추정치다
+    - 따라서 $R(\tau)-V_\psi(s_t)$는 **어드밴티지 함수(advantage function)** $Q^\pi(s,a)-V^\pi(s)=A^\pi(s,a)$의 추정치, 즉 상태 $s$에서 예상한 것보다 행동 $a$가 얼마나 더 나은지를 나타낸다
+      - 특히 단일 샘플 $\tau$의 보상 $R(\tau)$로 $Q^\pi$를 추정하므로 어드밴티지의 **몬테카를로 추정(Monte Carlo estimate)**이다
+- 베이스라인 함수는 대체로 모두 현재 상태에서의 기대 return인 $\mathcal V^\pi(s_t)$를 추정하려 한다
+  - 학습된 가치 함수 [위 내용]
+  - RLOO: 프롬프트마다 응답 $G$개를 샘플링하고, 프롬프트의 베이스라인은 *나머지 *보상들의 평균이다($i$를 포함하는 점과 std로 정규화하는 점을 빼면 GRPO와 매우 비슷함)
+  - batch 추정(REINFORCE++): batch 내 평균 보상을 사용
+
+**오프폴리시 정책 기울기(off-policy policy gradient)**
+
+- 온폴리시(on-policy) 정책 기울기의 문제는 정책이 그리 많이 바뀌지 않을 텐데도 기울기 step마다 정책으로 추론을 돌려야 한다는 점이다
+- 오프폴리시 학습에서는 최적화 대상과 다른 정책에서 rollout을 샘플링한다
+  - 보통 이전 버전의 정책 $\pi_{\theta_\text{old}}$에서 얻은 rollout으로 현재 정책 $\pi_\theta$를 최적화한다
+- **대리 목적 함수(surrogate objective)** $\mathcal J^\text{surrogate}$를 사용
+
+  $$
+  \mathcal J^\text{surrogate}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_{t=1}^T\underbrace{\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_\text{old}}(a_t\mid s_t)}}_{r_t}\, R(\tau)\right]
+  $$
+
+  - 비율 $r_t=\pi_\theta/\pi_{\theta_\text{old}}$는 중요도 샘플링(importance sampling) 방식의 재가중 항이다
+    - 중요도 샘플링 배경: $\mathbb E_{x\sim p} f(x)$를 구하고 싶은데 샘플 $x\sim q$만 있다면 다음과 같이 다시 쓸 수 있다
+
+      $$
+      \mathbb E_{x\sim p}\,f(x)=\mathbb E_{x\sim q}\,\left[\frac{p(x)}{q(x)}f(x)\right]
+      $$
+
+      - 직관적으로, $x$가 $q$보다 $p$에서 더 나올 법하면 그 샘플을 더 크게 치고, 반대도 마찬가지다
+  - 원래의 $\mathcal J(\theta)$와는 다른 목적 함수를 최적화한다는 점에 주의!
+  - *진짜* 오프폴리시 추정은 $\mathcal J(\theta)$를 중요도 샘플링으로 다시 쓴 것뿐이지만, 비율의 곱 때문에 분산이 끔찍하게 크다
+
+    $$
+    \mathcal J(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\frac{P(\tau\mid\theta)}{P(\tau\mid\theta_\text{old})}\,R(\tau)\right]=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\prod_{t=1}^T\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_\text{old}}(a_t\mid s_t)}\,R(\tau)\right]
+    $$
+
+    - $\mathcal J^\text{surrogate}$는 사실상 이 곱을 시점별 항의 합으로 바꾼 것이다
+- $\mathcal J^\text{surrogate}$로부터 다음 **오프폴리시 정책 기울기**가 나온다
+
+  $$
+  \nabla_\theta \mathcal J^\text{surrogate}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_t\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_\text{old}}(a_t\mid s_t)}\,\nabla_\theta\log\pi_\theta(a_t\mid s_t)\, R(\tau)\right]
+  $$
+
+  - 성립하는 이유: $r_t$에서 분자만 $\theta$에 의존한다는 점에 주목하고 log derivative trick을 적용하면 된다
+  - 실제로는 다음과 같이 추정한다. 여기서 $N$ = batch당 rollout 수
+
+  $$
+  \hat g_\text{off-policy}=\frac 1N\sum_{i=1}^N\sum_{t=1}^T\frac{\pi_\theta(a_t^{(i)}\mid s_t^{(i)})}{\pi_{\theta_\text{old}}(a_t^{(i)}\mid s_t^{(i)})}\nabla_\theta\log\pi_\theta(a_t^{(i)}\mid s_t^{(i)})R(\tau^{(i)})
+  $$
+
+## PPO
+
+- 중요도 가중치 $r_t=\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_\text{old}}(a_t\mid s_t)}$에 대한 클리핑(clipping) 메커니즘을 도입했다
+  - 일반 대리 목적 함수는 다음과 같다
+
+    $$
+    \mathcal J^\text{surrogate}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_tr_tA_t\right]
+    $$
+
+    - PPO는 가치 함수를 베이스라인으로 쓰므로, 관례에 따라 정책 기울기의 $R(\tau)$를 시점별 어드밴티지 $A_t=R(\tau)-V_\psi(s_t)$로 바꾼다
+  - **클리핑된 대리 목적 함수(clipped surrogate objective)**는 $r_t$가 $[1-\epsilon,1+\epsilon]$ 안에 머물도록 자른다
+
+  $$
+  \mathcal J^\text{CLIP}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_t\min(r_tA_t,\text{clip}(r_t,1-\epsilon,1+\epsilon)A_t)\right]
+  $$
+
+- 클리핑은 rollout batch 하나로 기울기 step을 여러 번 밟을 때 안정성을 유지해준다
+  - 더 안정적인 업데이트를 얻는 대가로 비편향성을 포기한다
+  - $\pi_{\theta_\text{old}}$에서 너무 멀리 벗어나지 않는 한 클리핑된 목적 함수는 좋은 근사다
+- 클리핑이 쓰이는 네 가지 경우
+  - $r_t>1+\epsilon$이고 $A_t>0$이면 $(1+\epsilon)A_t$를 쓴다
+    - $\nabla\mathcal J(\theta)$가 $\theta$에 의존하지 않음 → 기울기는 0
+    - 이전 정책에 비해 $a_t$의 확률을 이미 크게 올려놓았으니, 좋은 행동을 더 밀어붙이지 않는다
+  - $r_t<1-\epsilon$이고 $A_t<0$이면 $(1-\epsilon)A_t$를 쓴다
+    - 이 경우도 기울기는 0
+    - 나쁜 행동을 더 끌어내리지 않는다
+  - $r_t>1+\epsilon$이고 $A_t<0$이면 $r_tA_t$를 쓴다
+    - $\nabla\mathcal J(\theta)$가 $\theta$에 의존한다 [오프폴리시 정책 기울기 참고]
+    - 즉 $r_t$가 $>1+\epsilon$이 되는 것을 허용한다는 뜻이다. $A<0$이라 나쁜 token이므로 끌어내리도록 두는 것이 타당하다
+    - 클리핑은 비대칭적이다: 정책이 이미 어드밴티지가 권하는 방향으로 움직이고 있을 때만 작동하고, 실수를 바로잡는 것은 막지 않는다
+  - $r_t<1-\epsilon$이고 $A_t>0$이면 $r_tA_t$를 쓴다
+    - $\nabla\mathcal J(\theta)$가 $\theta$에 의존한다 [오프폴리시 정책 기울기 참고]
+- PPO는 현재 정책으로 궤적 batch를 모은 뒤, 클리핑된 대리 목적 함수로 기울기 step을 여러 번 밟는다
+
+## RLHF
+
+- $\pi_\theta$가 $\pi_\text{ref}$에서 너무 멀어지지 않도록 KL 페널티를 도입한다
+
+  $$
+  \mathcal J^\text{RLHF}(\theta)=\mathbb E_{\tau\sim\pi_\theta}\left[R(\tau)-\beta D_{\text{KL}}(\pi_\theta\mid\mid\pi_\text{ref})\right]
+  $$
+
+- 실제로는 KL 페널티를 token별로 계산해 token별 보상에 합쳐 넣는다
+- 보상 모델(reward model)을 학습하는 방법
+  - Bradley-Terry 모델에 따르면 $y_w$가 $y_l$보다 선호될 확률은 다음과 같다
+
+    $$
+    P(y_w\succ y_l)=\frac{\exp(R(x,y_w))}{\exp(R(x,y_w))+\exp(R(x,y_l))}=\sigma(R(x,y_w)-R(x,y_l))
+    $$
+
+  - 분류 헤드를 단 LM을 학습해 다음을 최대화한다
+
+    $$
+    \mathcal L(\varphi)=-\log P(y_w\succ y_l)
+    $$
+
+    - 정답 레이블이 항상 $y=1$이고 $p=P(y_w\succ y_l)$(Bradley-Terrey 기준)인 이진 교차 엔트로피(binary cross-entropy) 손실 $-(y\log p+(1-y)\log(1-p))$일 뿐이다
+
+## GRPO
+
+- GRPO는 보상 $R(\tau)$를 샘플링된 궤적 그룹 대비 $\tau$의 어드밴티지로 바꾼다
+  - 참고: $R(\tau)-b(s_t)$를 정규화 인자로 나누기도 하므로 깔끔하게 베이스라인 선택의 하나로 보기는 어렵다
+  - 질문 $q$에 대한 rollout 집합 $\{o^{(i)}\}_{i=1}^G$가 있고, 각각은 token $o^{(i)}_1,…,o^{(i)}_T$로 이루어진다고 하자
+    - 각 샘플 출력에 대해 $R(q,o^{(i)})$로 보상 $\mathbf r = \{r^{(i)}\}_{i=1}^G$를 계산한다
+    - 그룹 상대 어드밴티지 추정치 $A^{(i)}$는 다음과 같다
+
+      $$
+      A^{(i)}=\frac{r^{(i)}-\text{mean}(\mathbf r)}{\text{std}(\mathbf r)}
+      $$
+
+      - 어드밴티지 $A^{(i)}$는 응답 안의 모든 token에 똑같이 적용된다
+  - 목적 함수는 다음과 같다
+
+    $$
+    \mathcal J^\text{GRPO-CLIP}(\theta)=\frac 1G\sum_{i=1}^G\frac 1T\sum_{t=1}^T\min\left(r_tA^{(i)},\operatorname{clip}(r_t,1-\epsilon,1+\epsilon)A^{(i)}\right)
+    $$
+
+    - 여기서 $r_t$는 앞서와 같은 token별 확률 비율이다(여기서는 관례상 $a_t$ 대신 $o_t$를 씀)
+
+      $$
+      r_t=\frac{\pi_\theta(o_t\mid s_t)}{\pi_{\theta_\text{old}}(o_t\mid s_t)}
+      $$
+
+  - 샘플 그룹을 기준으로 어드밴티지를 계산해 critic(가치 함수)이 필요 없게 만들어 PPO를 단순화한다
+- GRPO는 세 가지 아이디어를 결합한다
+  - $\pi_{\theta_\text{old}}$를 쓰는 오프폴리시 정책 기울기: $\mathcal J^\text{surrogate}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_tr_tR(\tau)\right]$
+  - 클리핑 메커니즘 [PPO]: $\mathcal J^\text{CLIP}(\theta)=\mathbb E_{\tau\sim\pi_{\theta_\text{old}}}\left[\sum_t\min(r_t R(\tau),\text{clip}(r_t,1-\epsilon,1+\epsilon)R(\tau))\right]$
+  - 그룹 정규화로 어드밴티지 $A^{(i)}$ 계산 [DeepSeek R1]: $\mathcal J^\text{GRPO-CLIP}(\theta)=\frac 1G\sum_{i=1}^G\frac 1T\sum_{t=1}^T\min\left(r_tA^{(i)},\operatorname{clip}(r_t,1-\epsilon,1+\epsilon)A^{(i)}\right)$
+- 알고리즘
+  - 정책 모델 $\pi_\theta\leftarrow\pi_{\theta_\text{init}}$
+  - 각 step마다 (`n_grpo_steps`)
+    - $\mathcal D$에서 batch $\mathcal D_b$를 샘플링
+    - 이전 정책 모델 갱신 $\pi_{\theta_\text{old}}\leftarrow\pi_\theta$
+    - 각 질문 $q\in\mathcal D_b$에 대해 출력 $G$개 $\{o^{(i)}\}_{i=1}^G\sim\pi_{\theta_\text{old}}(\cdot\mid q)$를 샘플링
+    - 각 샘플 출력에 대해 $R(q,o^{(i)})$로 보상 $\{r^{(i)}\}_{i=1}^G$를 계산
+    - 그룹 상대 어드밴티지 추정으로 $A^{(i)}$를 계산
+    - 각 학습 step마다 (`n_train_steps_per_rollout_batch`)
+      - GRPO 목적 함수를 최대화해 정책 모델 $\pi_\theta$를 갱신
+  - replay 메커니즘을 써서 지속 학습으로 $r_\varphi$를 갱신
+- GRPO는 사실상 학습된 베이스라인 대신 경험적 베이스라인을 계산한다
+  - 기대 보상을 예측하도록 학습하는 대신, 샘플링으로 직접 측정한다
+  - 연산은 더 쓰지만(프롬프트당 completion $G$개) 메모리는 덜 쓴다(가치 네트워크를 저장할 필요 없음)
+- Dr. GRPO는 GRPO의 두 가지 문제를 고친다
+  - GRPO에서는 $\text{std}(\mathbf r)$가 작으면(질문이 너무 쉽거나 너무 어려우면) 보상이 증폭된다 → 그 그룹을 최적화하는 것이 더 중요해짐
+    - 너무 쉽거나 너무 어려운 문제에 가중치를 더 주는 편향
+  - GRPO에서는 보상이 rollout 길이 $\frac{1}{\lvert o_i\rvert}$로 정규화된다
+    - 정답 응답 중에서는 길이가 짧을수록 → 기울기가 커짐 → 더 강하게 강화됨
+    - 오답 응답 중에서는 길이가 길수록 → 기울기가 작아짐 → 페널티를 덜 받음
+      - 모델은 답을 맞히지 못할 바에는 아주 긴 답을 내놓으면 된다고 학습한다
+
+## DPO
+
+- KL 정규화된 목적 함수 $\mathcal J^\text{RLHF}$에는 닫힌 형태(closed-form)의 최적해가 있다
+
+  $$
+  \pi^*(y\mid x)=\frac{1}{Z(x)}\pi_\text{ref}(y\mid x)\exp\left(\frac1\beta R(y)\right)
+  $$
+
+  - 정리하면
+
+    $$
+    R(y)=\beta\log\frac{\pi^*(y\mid x)}{\pi_\text{ref}(y\mid x)}+\beta\log Z(x)
+    $$
+
+- DPO 손실은 관측된 선호의 음의 로그 가능도(negative log likelihood)일 뿐이다
+
+  $$
+  \mathcal L^\text{DPO}(\theta)=-\mathbb E_{(x,y_w,y_l)}\left[\log\sigma\left(\beta\log\frac{\pi_\theta(y_w\mid x)}{\pi_\text{ref}(y_w\mid x)}-\beta\log\frac{\pi_\theta(y_l\mid x)}{\pi_\text{ref}(y_l\mid x)}\right)\right]
+  $$
+
+# 정밀도 (Precision)
+
+- **혼합 정밀도(mixed precision)** 학습
+  - master weight는 FP32
+  - forward/backward pass용 weight는 BF16 사본
+  - activation은 BF16으로 계산
+  - 기울기(gradient)는 BF16으로 계산해 FP32로 누적
+    - 큰 weight에 작은 gradient를 더할 때 생기는 문제를 피한다
+    - BF16은 0 근처에서 정밀도가 더 높아 0.0001 같은 작은 gradient는 표현하지만, 갱신된 weight 1.0001은 표현하지 못한다
+    - 누적된 gradient만 FP32에 들어가면 된다. 개별 gradient는 weight에 비해 아주 작은 경우가 많다
+    - 각 파라미터의 `.grad`는 파라미터와 같은 dtype이므로, 개별 grad는 FP32로 cast된다
+- 직관
+  - matmul은 반올림 노이즈에 강하므로 forward/backward를 BF16으로 해도 괜찮다
+  - 개별 grad가 아주 작으므로 master weight는 FP32여야 한다
+- activation은 weight보다 양자화(quantization)하기 어렵다
+- 정밀도 선택지
+  - FP32: 완전 정밀도(4 bytes)
+  - FP16: 메모리 절반(2 bytes)
+  - BF16: FP16과 같은 메모리지만 수치 안정성이 더 좋음(더 넓은 dynamic range)
+  - INT8: FP32의 4분의 1 메모리, 양자화 필요(1 byte)
+  - INT4: 더 작음
+- 데이터 로딩
+  - `memmap`은 전체 데이터를 한 번에 메모리에 올리지 않게 해 준다
+- BF16으로 모델 로드
+  - HF `.from_pretrained()`로 모델을 로드할 때
+    - BF16은 `torch_dtype=torch.bfloat16`, 권장 선택지
+      - weight와 activation 모두 BF16
+    - 양자화는 `load_in_8bit=True`, `LLM.int8()` 사용
+      - weight는 INT8, activation은 FP16
+      - weight 압축으로 메모리를 절약한다
+      - activation이 더 높은 정밀도라 완전한 INT8 연산과는 다르다
+  - `model.half()` 또는 `model.to(torch.bfloat16)`은 모델을 FP16으로 변환한다
+
+    ```python
+    model = MyModel()
+    model.load_state_dict(torch.load('model.pt'))
+    model = model.half()
+    ```
+
+  - 모든 weight가 BF16이고 연산도 BF16으로 수행된다
+  - 실제로 추론에서는 전부 BF16으로 돌려도 괜찮다
+- `torch.autocast()`는 자동 혼합 정밀도를 수행한다
+  - weight는 FP32로 유지하고, 연산마다 BF16 또는 FP32를 선택적으로 쓴다
+    - 연산별 정밀도는 관리하지만 master weight는 관리하지 않는다
+    - 모델 전체를 BF16으로 로드하는 것보다 메모리를 더 쓰지만 잠재적으로 더 안정적이다
+  - matmul은 FP16(낮은 정밀도를 견딤), softmax는 FP32(수치 안정성을 위해 정밀도 필요), layernorm은 FP32(reduction에 정밀도 필요)
+  - 모델이 FP32이고 쉽게 변환할 수 없을 때, 또는 순수 BF16에서 수치 문제가 보일 때 유용하다
+  - `dtype`은 "낮은 정밀도" 타입을 지정한다
+
+  ```python
+  with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+      output = model(x)
+  ```
+
+- `bitsandbytes`를 쓰려면 `nn.Linear`를 `bnb.nn.Linear8bitLt` 또는 `bnb.nn.Linear4bit`로 교체한다
+
+  ```python
+  def replace_linear_with_8bit(model):
+      """Replace all nn.Linear with bnb.nn.Linear8bitLt"""
+      for name, child in model.named_children():
+          if isinstance(child, nn.Linear):
+              # 양자화된 대체 layer 생성
+              new_layer = bnb.nn.Linear8bitLt(
+                  child.in_features,
+                  child.out_features,
+                  bias=child.bias is not None,
+                  has_fp16_weights=False,
+              )
+              # weight 복사 (CUDA로 옮길 때 양자화됨)
+              new_layer.weight = bnb.nn.Int8Params(
+                  child.weight.data,
+                  requires_grad=False,
+              )
+              if child.bias is not None:
+                  new_layer.bias = nn.Parameter(child.bias.data)
+              
+              setattr(model, name, new_layer)
+          else:
+              # 자식 모듈로 재귀
+              replace_linear_with_8bit(child)
+      
+      return model
+  
+  # 사용 예
+  model = MyTransformer()
+  model.load_state_dict(torch.load('model.pt'))
+  model = replace_linear_with_8bit(model)
+  model = model.to('cuda')  # 여기서 양자화가 일어남
+  ```
+
+# 병렬화 (Parallelism)
+
+- **데이터 병렬화(data parallelism)**는 batch를 여러 장치에 나누고, **모델 병렬화(model parallelism)**는 한 번의 forward pass 계산 자체를 여러 장치에 나눈다
+  - FSDP는 메모리 효율을 위해 파라미터를 rank 간에 샤딩(sharding)하지만, 각 rank는 필요한 직전에 파라미터를 all-gather해서 여전히 전체 forward pass를 계산한다
+- 데이터 병렬화의 한계
+  - $M<B$가 필요하다. $B$가 "critical batch size"보다 커지는 것은 바람직하지 않으므로 꼭 좋은 조건은 아니다
+  - 모델이 여전히 한 장치에 안 들어갈 수 있다 (ZeRO stage 3도 장치당 activation 메모리는 줄이지 못한다)
+- **강한 스케일링(strong scaling)**: 학습에 쓰는 칩 수를 늘리면 처리량(FLOPs/second)이 비례해서 늘어나는 것
+- DP는 처리량을, TP/PP는 모델 메모리를, SP는 activation 메모리를 스케일링한다
+- 5D 병렬화
+  - **데이터 병렬화** (DP): 데이터 batch를 여러 장치에 나눈다
+  - **텐서 병렬화** (TP): 모델의 서로 다른 레이어/스테이지를 여러 장치에 나눈다
+  - **파이프라인 병렬화** (TP): 개별 레이어/가중치 행렬을 여러 장치에 나눈다
+  - **시퀀스 병렬화** (SP): 입력 시퀀스 길이를 여러 장치에 나눈다
+  - **전문가 병렬화** (EP): MoE 모델의 서로 다른 expert를 여러 장치에 분산한다
+
+## 배경: 핵심 집합 통신 연산 (Background: core collective operations)
+
+- **broadcast** (일대다, 같은 데이터): 한 GPU가 가진 데이터를 다른 모든 GPU에 동일한 사본으로 보낸다
+- **all-gather** (다대다): 각 GPU가 데이터 조각을 하나씩 갖고 있고, 모든* *GPU가 전체 모음을 받는다
+  - 한 축을 따라 샤딩을 *제거*한다
+
+    $$
+    \operatorname{AllGather}_Y:\mathbf A[I,J_Y]\rightarrow \mathbf A[I,J]
+    $$
+
+- **reduce-scatter**: 각 GPU가 reduce되지 않은 데이터를 갖고 있고, 이를 reduction으로 합친 결과가 GPU들에 샤딩된다
+  - all-gather와 매우 비슷하지만, 각 샤드를 그대로 두는 대신 모두 더한다
+  - 한 축을 따라 샤딩을 *추가*한다
+
+  $$
+  \operatorname{ReduceScatter}_{Y,J}:\mathbf A[I,J]\{U_Y\}\rightarrow \mathbf A[I,J_Y]
+  $$
+
+- **all-reduce**: 모든 GPU가 reduce되지 않은 데이터를 갖고 있고, 이를 reduction으로 합쳐 모든 GPU가 최종 결과를 받는다
+
+  $$
+  \operatorname{AllReduce}_Y\mathbf A[I,J]\{U_Y\}\rightarrow A[I, J]
+  $$
+
+![](img/24749a55-12a5-4801-8b81-707d6e59b3f3.png)
+
+- ring all-reduce: reduce-scatter + all-gather (각 프로세스는 두 이웃과 통신한다) [[애니메이션](https://www.youtube.com/watch?v=CQ-cOykh0sY)]
+  - 처음에는 각 GPU가 reduce되지 않은 데이터를 갖고 있다
+  - reduce-scatter: reduction으로 데이터를 합치고, 각 GPU는 reduce된 부분집합을 갖는다
+    - 산술 연산은 전부 여기서 하고, 중복 복사는 하지 않는다
+  - all-gather: 모든 GPU가 reduce된 부분집합 전체를 받는다
+    - 복사는 전부 여기서 하고, 산술 연산은 하지 않는다
+- all-gather, reduce-scatter, all-reduce의 통신 시간은 배열 크기와 대역폭에만 달려 있고, 배열이 샤딩된 장치 수와는 *무관하다*!
+- reduce-scatter와 all-gather는 서로의 backward pass에 쓰인다
+  - forward의 all-gather → backward의 reduce-scatter
+    - all-gather는 같은 청크를 모든 장치에 broadcast하고, 각 장치에서 이 청크는 서로 다른 하위 계산에 쓰인다
+    - 상류 기울기(upstream gradient)는 바깥으로 갈라지는 분기에서 합산된다 ($x=a+b$이면 $\partial f/\partial x=\partial f/\partial a \cdot\partial a/\partial x + \partial f/\partial a\cdot \partial a/\partial x$)
+    - 이것이 바로 reduce-scatter다: 모든 상류 기울기를 원래 장치로 합산해 보낸다
+    - forward의 fan-out → backward의 합산
+  - forward의 reduce-scatter → backward의 all-gather
+    - reduce-scatter는 여러 입력을 하나의 청크로 합산한다
+    - backward에서 합산 노드는 상류 기울기를 각 피가산항에 복사한다
+    - 이것이 바로 all-gather다: 각 청크의 기울기를 기여한 장치들에 다시 broadcast한다
+    - forward의 합산 → backward의 fan-out
+- 따라서 all-reduce의 backward는 또 다른 all-reduce다!
+
+**파티셔닝 표기법**
+
+- mesh의 축 이름은 $(X, Y)$, 행렬 $A$의 축은 $(I, J)$
+- $I_X$: $A$의 행을 장치 mesh의 열에 걸쳐 나눈다
+  - $A$의 $I$ 축(행)을 $X$ mesh 축을 따라(각 행을 따라) 파티셔닝한다
+- $I_Y$: $A$의 행을 장치 mesh의 행에 걸쳐 나눈다
+- $J_Y$: $A$의 열을 장치 mesh의 행에 걸쳐 나눈다
+- $J_X$: $A$의 열을 장치 mesh의 열에 걸쳐 나눈다
+- $I_{XY}$: $A$의 행을 평탄화한 $XY$ mesh의 모든 장치에 걸쳐 나눈다
+- $I$: $A$의 행을 나누지 않는다
+- 어떤 mesh 차원이 표기에 없으면 그 차원을 따라 데이터가 복제된다는 뜻이다
+  - $Y$가 없음: 각 열이 같은 데이터를 갖는다
+
+![](img/b5b2bbba-bd2a-4436-b333-74c28f07d53e.png)
+
+- 행렬곱의 좋은 성질: 곱하는 행렬들을 블록으로 나타내면, 그 곱도 블록 행렬곱으로 나타낼 수 있다
+- 행렬곱의 네 가지 경우
+  - 경우 1: 어느 행렬도 축약 차원(contracting dimension)이 샤딩되어 있지 않음
+
+    $$
+    \mathbf A[I_X,J]\cdot \mathbf B[J, K_Y]\rightarrow \mathbf C[I_X, K_Y]
+    $$
+
+    ![](img/59e8205b-668e-4c72-b2c6-37cb32621c51.png)
+
+    - 통신이 필요 없다
+    - 로컬 블록 행렬곱을 수행한다
+    - 출력이 자연스럽게 원하는 방식으로 샤딩된다
+  - 경우 2: $A$나 $B$ 중 하나의 축약 차원이 샤딩되어 있음
+
+    $$
+    \mathbf A[I,J_X]\cdot \mathbf B[J, K]\rightarrow \mathbf C[I,K]
+    $$
+
+    - $A$의 샤드를 all-gather해서 모든 장치가 전체 사본을 갖게 한 뒤 $B$와 곱한다
+
+    $$
+    \operatorname{AllGather}_X[I, J_X]\rightarrow \mathbf A[I, J]\\
+\mathbf A[I,J]\cdot\mathbf B[J, K]\rightarrow\mathbf C[I,K]
+    $$
+
+  - 경우 3: $A$와 $B$ 모두 축약 차원이 샤딩되어 있음
+
+    $$
+    \mathbf A[I,J_X]\cdot \mathbf B[J_X, K]\rightarrow\mathbf C[I,K]
+    $$
+
+    - 행렬곱은 가능하지만 각 장치는 원하는 곱의 부분합만 갖는다
+      - $X$ 차원을 따라 있는 장치마다 서로 다른 부분합을 갖는다
+      - $X$ mesh 축을 따라 reduce되지 않았다는 뜻으로 $C[I,K]\{U_X\}$ 표기를 쓴다
+    - $X$ 축에 걸친 all-reduce로 최종 합산을 한다
+
+      $$
+      \operatorname{AllReduce}_XC[I,K]\{U_X\}\rightarrow C[I,K]
+      $$
+
+      - 결과적으로 모든 장치가 완전히 합산된 같은 값을 갖는다
+  - 경우 4: $A$와 $B$ 모두 비축약 차원이 같은 축을 따라 샤딩되어 있음
+
+## 데이터 병렬화 (Data parallelism)
+
+**단순 데이터 병렬화 (DDP)**
+
+- $B$ 크기 batch의 예제들을 $M$개 장치에 나누고 기울기를 교환한다
+- 단계
+  1. 로컬 micro-batch로 forward pass를 실행한다
+  1. 모든 파라미터의 기울기를 계산한다
+  1. GPU 간에 기울기를 *all-reduce*해서 각 GPU가 평균된 G를 갖게 한다
+  1. 각 GPU가 독립적으로 모든 파라미터를 업데이트한다
+    - 이 단계에서는 모든 GPU가 동일한 작업을 한다
+- 모델이 한 장치에 들어간다면 항상 이 방식을 써야 한다
+- 통신은 backward pass에서만 일어난다
+- 장치를 늘려가며 batch 크기를 얼마든지 키울 수 있다
+
+**ZeRO stage 1: optimizer state 샤딩**
+
+- 각 장치는 Adam 벡터의 $1/M$만 갖고, 자신이 optimizer state를 가진 파라미터만 업데이트한다
+- 단계
+  1. 로컬 micro-batch로 forward pass를 실행한다
+  1. 모든 파라미터의 기울기를 계산한다
+  1. 기울기를 *reduce-scatter*한다: 각 GPU는 자신이 맡은 파라미터 부분집합에 대해 reduce된 기울기를 갖는다
+  1. 각 GPU는 자신의 optimizer state 부분집합으로 자신의 파라미터 부분집합을 업데이트한다
+  1. 업데이트된 파라미터를 *all-gather*한다
+- all-reduce 한 번의 비용이 reduce-scatter + all-gather와 같으므로 추가 통신 오버헤드가 없고, 메모리 이득을 공짜로 얻는다
+
+**ZeRO stage 2: optimizer state + 기울기 샤딩**
+
+- 기울기도 샤딩해서 각 장치가 기울기의 $1/M$만 갖는다
+- 단계
+  1. 로컬 micro-batch로 forward pass를 실행한다
+  1. 각 레이어의 기울기가 계산되는 즉시 *reduce-scatter*한다. 각 GPU는 자신이 맡은 기울기 부분집합만 남기고 나머지는 해제한다.
+  1. 각 GPU는 자신의 optimizer state 부분집합으로 자신의 파라미터 부분집합을 업데이트한다
+  1. 업데이트된 파라미터를 *all-gather*한다
+
+**ZeRO stage 3: optimizer state + 기울기 + 파라미터 샤딩 (FSDP)**
+
+- 파라미터도 샤딩해서 각 장치가 파라미터의 $1/N$만 갖는다
+- 각 레이어의 파라미터를 필요한 시점에 *all-gather*해서 쓰고 버린다
+- GPU 하나에 안 들어가는 모델도 학습할 수 있다
+- ZeRO stage 1, 2, 3의 통신 비용은 모두 같다
+
+## 파이프라인 병렬화 (Pipeline parallelism)
+
+- 모델 병렬화를 단순하게 하면 각 레이어를 서로 다른 GPU로 옮기고, 각 레이어 전에 hidden state를 해당 GPU로 옮기게 된다 (처리량이 전혀 개선되지 않으므로 나쁜 방식이다)
+- 제대로 된 비동기 파이프라인 병렬화
+
+  ```python
+  from torch.distributed.pipeline.sync import Pipe
+  
+  model = nn.Sequential(
+      nn.Linear(512, 512).to('cuda:0'),
+      nn.ReLU().to('cuda:0'),
+      nn.Linear(512, 512).to('cuda:1'),
+      nn.ReLU().to('cuda:1'),
+  )
+  
+  model = Pipe(model, chunks=8)  # batch를 8개의 micro-batch로 나눈다
+  output = model(x)
+  ```
+
+## 텐서 병렬화 (Tensor parallelism)
+
+- FSDP와 텐서 병렬화는 효과적으로 결합할 수 있다
+  - batch 차원 $B$를 샤딩하면 all-gather 크기가 줄고, FFN 차원 $F$를 샤딩하면 FSDP의 통신 오버헤드가 준다
+- MLP(사이에 activation이 있는 두 linear 레이어)에서는 column parallel($W^\text{up}$) → activation → row parallel($W^\text{down}$) 순서로 한다
+  - 첫 번째 가중치 행렬을 열 방향으로 나눈다
+  - 각 장치는 자기 샤드를 계산하고 activation을 로컬에서 적용한다
+  - 두 번째 가중치 행렬을 행 방향으로 나눈다
+  - 각 장치는 부분 결과를 계산한 뒤 *all-reduce*로 합산한다
+    - 핵심 아이디어
+
+      ```python
+      y = h @ W2
+        = [h_0, h_1] @ [W2_0]
+                       [W2_1]
+        = h_0 @ W2_0 + h_1 @ W2_1
+        = y_0 + y_1
+      ```
+
+![](img/60cab12a-c1de-4585-93af-bfa14d80370e.png)
+
+- 다른 샤딩 방식을 고르면 중간에 집합 통신이 반드시 끼어든다
+  - 행렬곱 $Y=XW$에서
+    - $W$를 열 샤딩하면 각 장치가 출력의 한 조각을 계산하므로 출력이 깔끔하게 샤딩된다
+    - $W$를 행 샤딩하면 각 장치가 전체 출력의 부분합을 계산하므로 마무리하려면 reduction이 필요하다
+- SwiGLU 형태의 MLP에서는 $W_\text{gate}$와 $W_\text{gate}$를 모두 열 샤딩하고, element-wise 곱을 $F$에 대해 샤딩된 상태로 유지한 뒤, $W_\text{down}$을 행 샤딩하고 마지막에 all-reduce한다
+- 코드
+
+  ```python
+  class ColumnParallelLinear(nn.Module):
+      def __init__(self, in_features, out_features, world_size, rank):
+          super().__init__()
+          self.out_features_per_rank = out_features // world_size
+          self.rank = rank
+  
+          self.linear = nn.Linear(
+  	          in_features,
+  	          self.out_features_per_rank,
+  	          bias=False,
+  	          device=f"cuda:{rank}"
+          )
+      
+      def forward(self, x):
+          return self.linear(x)
+  
+  
+  class RowParallelLinear(nn.Module):
+      def __init__(self, in_features, out_features, world_size, rank):
+          super().__init__()
+          self.in_features_per_rank = in_features // world_size
+          self.rank = rank
+          
+          self.linear = nn.Linear(
+  		        self.in_features_per_rank,
+  	          out_features,        
+  	          bias=False,
+  	          device=f"cuda:{rank}"
+          )
+      
+      def forward(self, x):
+          # x는 부분 입력: (batch, in_features_per_rank)
+          # 각 GPU가 부분 결과를 계산
+          partial = self.linear(x)
+          
+          # GPU 간 부분 결과를 all-reduce로 합산
+          dist.all_reduce(partial, op=dist.ReduceOp.SUM)
+          
+          return partial
+  
+  
+  class TensorParallelMLP(nn.Module):
+      """
+      column parallel -> activation -> row parallel requires only one all-reduce
+      """
+      def __init__(self, d_model, d_ff, world_size, rank):
+          super().__init__()
+          assert d_model % world_size == d_ff % world_size == 0
+          self.fc1 = ColumnParallelLinear(d_model, d_ff, world_size, rank)
+          self.fc2 = RowParallelLinear(d_ff, d_model, world_size, rank)
+      
+      def forward(self, x):
+          x = self.fc1(x)      # (batch, seq, d_ff // world_size)
+          x = nn.functional.silu(x)
+          x = self.fc2(x)      # (batch, seq, d_model), all-reduced
+          return x
+  ```
+
+- attention에서는 각 장치가 attention head의 부분집합을 맡는다 (head끼리는 독립이므로)
+  - 마지막에 all-reduce 한 번 (MLP와 같음)
+  - attention head는 서로 독립이므로, head 단위로 나누면 attention 계산 중에는 통신이 필요 없다!
+  - column parallel (QKV) → 계산 → row parallel (출력)
+
+  ```python
+  class TensorParallelAttention(nn.Module):
+      def __init__(self, d_model, num_heads, world_size, rank):
+          super().__init__()
+          assert num_heads % world_size == 0
+          self.rank = rank
+          
+          # 각 GPU가 head의 부분집합을 담당
+          # 로컬 head에 대해서만 QKV projection
+          self.qkv = ColumnParallelLinear(
+              d_model, 
+              3 * d_model,
+              world_size,
+              rank
+          )
+          self.out_proj = RowParallelLinear(
+              d_model,
+              d_model,
+              world_size,
+              rank
+          )
+      
+      def forward(self, x):
+          batch, seq_len, _ = x.shape
+          
+          # 로컬 Q, K, V로 projection
+          qkv = self.qkv(x)
+          qkv = qkv.reshape(batch, seq_len, 3, self.num_heads_per_rank, self.head_dim)
+          q, k, v = qkv.unbind(dim=2)
+          
+          # 로컬 head에 대해 attention
+          q = q.transpose(1, 2)  # (batch, local_heads, seq_len, head_dim)
+          k = k.transpose(1, 2)
+          v = v.transpose(1, 2)
+          
+          attn_out = nn.functional.scaled_dot_product_attention(q, k, v)
+          attn_out = attn_out.transpose(1, 2).reshape(batch, seq_len, -1)
+          
+          # all-reduce를 포함한 출력 projection
+          return self.out_proj(attn_out)
+  ```
+
+# 멀티모달 (Multimodality)
+
+- Vision Transformer(ViT): 이미지를 벡터 시퀀스로 바꾼 뒤 표준 transformer encoder를 돌린다
+- LLaVA
+  - 모델 hidden 차원은 $D=4096$, CLIP hidden 차원은 1024
+
+  ```python
+  Image [224, 224, 3]
+      ↓ patchify
+  Patches [256, 588]
+      ↓ linear projection (independent)
+  Patch embeddings [256, 1024]
+      ↓ prepend CLS, add position embeddings
+  Sequence [257, 1024]
+      ↓ CLIP (transformer encoder with 24 layers)
+  CLIP output [256, 1024]
+      ↓ projection W applied independently per token
+  Visual embeddings [256, 4096]
+      ↓ concatenate with text embeddings [N, 4096]
+  Full sequence [256 + N, 4096]
+      ↓ LLM transformer
+  ```
+
+![LLaVA 아키텍처](img/bcd6c79e-cb97-45a6-af1d-62376f10d653.png)
+
+- LLaVA-NeXT 동적 해상도
+  - 고해상도 이미지를 여러 crop으로 나눠 각각 인코딩한 뒤 이어 붙인다
+- Qwen2-VL
+  - 이전에는 입력 크기가 고정(예: 224 x 224) → 항상 patch 256개
+    - $[256, D]$ 형태의 절대 위치 임베딩을 학습
+  - 고정 크기 이미지로 제한됐던 이유는 단지 학습된 위치 임베딩 개수가 고정돼 있었기 때문이다
+  - 이제는 그냥 2D-rope를 쓴다
+    - patch 크기는 여전히 고정
+    - 위치를 (행, 열) 좌표로 인코딩
+    - RoPE는 위치 인코딩을 즉석에서 생성한다
+    - 모델이 임의의 해상도와 종횡비로 일반화할 수 있다
+- 현재 패러다임
+  - 이해: ViT encoder → feature
+  - 생성: 픽셀 공간에서 동작하는 diffusion
+- CLIP
+  - 대조 학습(contrastive learning)으로 학습
+  - 올바른 쌍의 텍스트/이미지 임베딩 유사도를 최대화
+

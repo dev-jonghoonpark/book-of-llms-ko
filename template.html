@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alisa의 LLM 노트 (한국어 번역)</title>
+<meta name="description" content="Alisa Liu의 「Alisa’s book of LLMs」 한국어 번역 — 신경망 기초, 현대 transformer LM, 추론, scaling law, 사후 학습(PPO·RLHF·GRPO·DPO), 정밀도, 병렬화, 멀티모달까지 수식과 함께 정리한 LLM 학습 노트">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%93%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f7f5; --surface: #fdfdfc; --surface2: #eff1ee;
+  --ink: #171a18; --ink2: #565b57; --muted: #898781;
+  --line: #e1e0d9; --accent: #4a54c9; --accent-soft: #e2e4f7; --code-bg: #eef1ee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f1211; --surface: #181c1a; --surface2: #202522;
+    --ink: #edf0ed; --ink2: #aab3ac; --muted: #898781;
+    --line: #262b28; --accent: #8f97f2; --accent-soft: #23264d; --code-bg: #141816;
+  }
+  .content img { background: #fff; border-radius: 6px; }
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", Pretendard, "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  line-height: 1.72; -webkit-font-smoothing: antialiased;
+}
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 28px 12px 40px 20px;
+  font-size: 0.86rem; border-right: 1px solid var(--line);
+}
+nav.toc a { display: block; color: var(--ink2); text-decoration: none; padding: 2px 6px; border-radius: 4px; }
+nav.toc a:hover { background: var(--surface2); color: var(--ink); }
+nav.toc a.h1 { font-weight: 650; color: var(--ink); margin-top: 10px; }
+nav.toc a.h2 { padding-left: 16px; }
+nav.toc a.active { background: var(--accent-soft); color: var(--accent); }
+main { padding: 28px 32px 100px; min-width: 0; }
+.source {
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  border-radius: 8px; padding: 14px 18px; margin: 12px 0 28px; font-size: 0.93rem; color: var(--ink2);
+}
+.source p { margin: 4px 0; }
+a { color: var(--accent); }
+h1.title { font-size: 1.8rem; margin: 8px 0 6px; letter-spacing: -0.015em; }
+.content h1 { font-size: 1.5rem; margin: 64px 0 12px; padding-top: 18px; border-top: 1px solid var(--line); }
+.content h2 { font-size: 1.22rem; margin: 40px 0 10px; }
+.content h3 { font-size: 1.05rem; margin: 28px 0 8px; }
+.content ul, .content ol { padding-left: 1.4em; }
+.content li { margin: 3px 0; }
+.content li > ul, .content li > ol { margin: 3px 0; }
+.content blockquote {
+  margin: 14px 0; padding: 10px 16px; background: var(--surface2); border-radius: 8px; border-left: 3px solid var(--muted);
+}
+.content blockquote p { margin: 6px 0; }
+.content code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.content pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 0.86rem; line-height: 1.5; }
+.content pre code { background: none; padding: 0; }
+.content img { max-width: 100%; height: auto; display: block; margin: 12px 0; }
+.content table { border-collapse: collapse; margin: 12px 0; display: block; overflow-x: auto; }
+.content th, .content td { border: 1px solid var(--line); padding: 6px 10px; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+footer { margin-top: 60px; font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 860px) {
+  .layout { display: block; }
+  nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); max-height: 40vh; }
+  main { padding: 20px 16px 80px; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" id="toc"></nav>
+<main>
+  <h1 class="title">Alisa의 LLM 노트</h1>
+  <div class="source">
+    <p>📌 <strong>출처</strong>: Alisa Liu, 「<a href="https://alisawuffles.notion.site/alisa-s-book-of-llms">Alisa’s book of LLMs</a>」 (Notion). 이 페이지는 원문을 한국어로 옮긴 비공식 번역이며, 모든 내용의 저작권은 원저자에게 있습니다.</p>
+    <p>원문은 계속 갱신되는 개인 학습 노트이므로 최신 내용과 정확한 표현은 원문을 확인하세요. 번역 오류는 번역자의 책임입니다. 원저자의 요청이 있으면 즉시 내립니다.</p>
+    <p>번역·정리: <a href="https://github.com/dev-jonghoonpark">dev-jonghoonpark</a> · <a href="https://github.com/dev-jonghoonpark/how-ai-works">how-ai-works</a> 시리즈 · 번역 기준 시점 SNAPSHOT_DATE</p>
+  </div>
+  <article class="content" id="content"></article>
+  <footer>
+    원문: Alisa Liu, <a href="https://alisawuffles.notion.site/alisa-s-book-of-llms">Alisa’s book of LLMs</a> · 한국어 번역: <a href="https://github.com/dev-jonghoonpark/book-of-llms-ko">dev-jonghoonpark/book-of-llms-ko</a>
+  </footer>
+</main>
+</div>
+<script type="text/markdown" id="md">
+__CONTENT__
+</script>
+<script>
+(function () {
+  let src = document.getElementById('md').textContent;
+  // marked가 LaTeX의 _ \ * 를 건드리지 않도록 코드와 수식을 먼저 자리표시자로 빼 둔다
+  const store = [];
+  const hold = html => '\u0000' + (store.push(html) - 1) + '\u0000';
+  src = src.replace(/```[\s\S]*?```/g, m => '\u0001' + (store.push(m) - 1) + '\u0001');
+  src = src.replace(/`[^`\n]+`/g, m => '\u0001' + (store.push(m) - 1) + '\u0001');
+  const tex = (t, display) => {
+    try { return katex.renderToString(t, { displayMode: display, throwOnError: false, strict: false, trust: true }); }
+    catch (e) { return '<code>' + t + '</code>'; }
+  };
+  src = src.replace(/\$\$\s*([\s\S]+?)\s*\$\$/g, (_, t) => hold('<div class="math">' + tex(t, true) + '</div>'));
+  src = src.replace(/\$([^\$\n]+?)\$/g, (_, t) => hold(tex(t, false)));
+  src = src.replace(/\u0001(\d+)\u0001/g, (_, i) => store[i]);
+  let html = marked.parse(src, { gfm: true });
+  html = html.replace(/\u0000(\d+)\u0000/g, (_, i) => store[i]);
+  const el = document.getElementById('content');
+  el.innerHTML = html;
+  // 목차
+  const toc = document.getElementById('toc');
+  const used = {};
+  el.querySelectorAll('h1, h2').forEach(h => {
+    let id = h.textContent.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+    if (used[id]) id += '-' + (++used[id]); else used[id] = 1;
+    h.id = id;
+    const a = document.createElement('a');
+    a.href = '#' + id; a.textContent = h.textContent; a.className = h.tagName.toLowerCase();
+    toc.appendChild(a);
+  });
+  const links = [...toc.querySelectorAll('a')];
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { links.forEach(l => l.classList.toggle('active', l.hash === '#' + e.target.id)); }
+  }), { rootMargin: '0px 0px -75% 0px' });
+  el.querySelectorAll('h1, h2').forEach(h => io.observe(h));
+  if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+})();
+</script>
+</body>
+</html>
